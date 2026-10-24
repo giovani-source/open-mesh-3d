@@ -1,0 +1,11 @@
+fastapi>=0.109.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9
+pillow>=10.2.0
+torch>=2.2.0
+torchvision>=0.17.0
+trimesh>=4.1.0
+rembg>=2.0.50
+transformers>=4.38.0
+einops>=0.7.0
+git+https://github.com/VAST-AI-Research/TripoSR.git

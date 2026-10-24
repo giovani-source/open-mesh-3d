@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Forge3D AI - Imagem para 3D e STL Grátis</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app" class="app-layout">
+      <!-- HEADER -->
+      <header class="app-header">
+        <div class="header-brand">
+          <div class="brand-logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-title-wrap">
+              <h1 class="brand-title">Forge3D AI</h1>
+              <span class="badge-free">100% GRÁTIS</span>
+            </div>
+            <p class="brand-subtitle">Estúdio Aberto Imagem ➔ 3D & STL Slicer-Ready (Sem Limite de Créditos)</p>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button id="btn-open-guide" class="btn-ghost">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            Como Funciona vs Meshy
+          </button>
+          <button id="btn-open-backend" class="btn-ghost">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6"></path><path d="M12 19h8"></path></svg>
+            IA Neural Local (Python)
+          </button>
+        </div>
+      </header>
+
+      <!-- MAIN WORKSPACE -->
+      <main class="studio-container">
+        <!-- LEFT PANEL: IMAGE & GENERATION SETTINGS -->
+        <aside class="panel left-panel">
+          <div class="panel-section">
+            <h2 class="section-title">
+              <span class="step-num">1</span> Imagem de Entrada
+            </h2>
+            
+            <div id="dropzone" class="upload-dropzone">
+              <input type="file" id="file-input" accept="image/*" class="file-hidden" />
+              <div class="dropzone-content" id="dropzone-prompt">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="icon-pulse">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <p class="dropzone-text">Arraste sua imagem aqui ou <strong>clique para escolher</strong></p>
+                <span class="dropzone-sub">PNG, JPG, WEBP • Fotos, Logos, Desenhos</span>
+              </div>
+              <img id="image-preview" class="image-preview hidden" alt="Prévia da Imagem" />
+            </div>
+
+            <!-- PRESET SAMPLES -->
+            <div class="presets-row">
+              <span class="presets-label">Ou teste um exemplo rápido:</span>
+              <div class="preset-thumbnails">
+                <button class="preset-btn active" data-sample="dragon" title="Moeda Dragão Cíber">
+                  <img src="/samples/dragon_coin.jpg" alt="Dragão" />
+                  <span>Moeda</span>
+                </button>
+                <button class="preset-btn" data-sample="robot" title="Mascote Robô">
+                  <img src="/samples/robot_toy.jpg" alt="Robô" />
+                  <span>Robô</span>
+                </button>
+                <button class="preset-btn" data-sample="statue" title="Busto de Mármore">
+                  <img src="/samples/statue_bust.jpg" alt="Escultura" />
+                  <span>Busto</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- GENERATION ENGINE -->
+          <div class="panel-section">
+            <h2 class="section-title">
+              <span class="step-num">2</span> Modo de Geração 3D
+            </h2>
+            <div class="engine-tabs">
+              <button class="engine-tab active" data-engine="relief">
+                <div class="tab-title">Relevo Estanque (STL)</div>
+                <div class="tab-desc">100% Fechado, para medalhas, moedas, litofanias e placas</div>
+              </button>
+              <button class="engine-tab" data-engine="volumetric">
+                <div class="tab-title">Escultura 360° Volumétrica</div>
+                <div class="tab-desc">Infla a silhueta em volume 360° frente e verso</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- GEOMETRY PARAMETERS -->
+          <div class="panel-section">
+            <h2 class="section-title">
+              <span class="step-num">3</span> Parâmetros da Peça (mm)
+            </h2>
+
+            <div class="param-group">
+              <div class="param-header">
+                <label for="param-width">Largura da Peça</label>
+                <span id="val-width" class="param-val">80 mm</span>
+              </div>
+              <input type="range" id="param-width" min="30" max="200" step="5" value="80" class="slider" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <label for="param-height">Altura do Relevo / Extrusão</label>
+                <span id="val-height" class="param-val">8 mm</span>
+              </div>
+              <input type="range" id="param-height" min="1" max="30" step="0.5" value="8" class="slider" />
+            </div>
+
+            <div class="param-group" id="group-base">
+              <div class="param-header">
+                <label for="param-base">Espessura da Base</label>
+                <span id="val-base" class="param-val">3 mm</span>
+              </div>
+              <input type="range" id="param-base" min="0.5" max="15" step="0.5" value="3" class="slider" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <label for="param-res">Resolução da Malha</label>
+                <span id="val-res" class="param-val">Alta (150x150)</span>
+              </div>
+              <input type="range" id="param-res" min="80" max="220" step="20" value="140" class="slider" />
+            </div>
+
+            <div class="param-group">
+              <div class="param-header">
+                <label for="param-smooth">Suavização de Bordas</label>
+                <span id="val-smooth" class="param-val">Nível 1</span>
+              </div>
+              <input type="range" id="param-smooth" min="0" max="4" step="1" value="1" class="slider" />
+            </div>
+
+            <div class="options-grid">
+              <div class="param-group select-group">
+                <label for="param-shape">Borda / Moldura:</label>
+                <select id="param-shape" class="custom-select">
+                  <option value="coin">Moeda com Borda Realçada</option>
+                  <option value="circle">Circular Suave</option>
+                  <option value="rect">Retangular Completo</option>
+                </select>
+              </div>
+
+              <div class="toggle-group">
+                <label class="toggle-switch">
+                  <input type="checkbox" id="param-invert">
+                  <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">Inverter Relevo (Litofania / Selo)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- GENERATE BUTTON -->
+          <div class="generate-action-box">
+            <button id="btn-generate" class="btn-primary-glow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>Gerar Modelo 3D Agora</span>
+            </button>
+            <div id="gen-status" class="gen-status-text">Modelo pronto para visualização</div>
+          </div>
+        </aside>
+
+        <!-- CENTER: INTERACTIVE 3D VIEWPORT -->
+        <section class="viewport-area">
+          <div id="canvas-container" class="canvas-container"></div>
+
+          <!-- FLOATING TOP TOOLBAR (VIEWS & TOOLS) -->
+          <div class="floating-toolbar top-toolbar">
+            <div class="toolbar-group">
+              <button class="tool-btn active" data-view="iso" title="Vista Isométrica 3D">Iso</button>
+              <button class="tool-btn" data-view="top" title="Vista Superior">Topo</button>
+              <button class="tool-btn" data-view="front" title="Vista Frontal">Frente</button>
+              <button class="tool-btn" data-view="side" title="Vista Lateral">Lado</button>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-group">
+              <button id="btn-toggle-bed" class="tool-btn active" title="Alternar Mesa de Impressão 220x220mm">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                Mesa
+              </button>
+              <button id="btn-toggle-wireframe" class="tool-btn" title="Alternar Malha de Triângulos (Wireframe)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
+                Malha
+              </button>
+            </div>
+          </div>
+
+          <!-- FLOATING BOTTOM TOOLBAR (MATERIALS & FILAMENT PRESETS) -->
+          <div class="floating-toolbar bottom-toolbar">
+            <span class="mat-label">Aparência:</span>
+            <div class="material-pills">
+              <button class="mat-pill active" data-mat="texture" title="Cores e textura originais da imagem">
+                <span class="dot dot-texture"></span> Textura
+              </button>
+              <button class="mat-pill" data-mat="pla_gold" title="Filamento Ouro Seda Refletivo">
+                <span class="dot dot-gold"></span> PLA Ouro
+              </button>
+              <button class="mat-pill" data-mat="pla_silver" title="Filamento Prata Metálico">
+                <span class="dot dot-silver"></span> PLA Prata
+              </button>
+              <button class="mat-pill" data-mat="pla_stealth" title="Filamento Preto Fosco">
+                <span class="dot dot-stealth"></span> Preto Fosco
+              </button>
+              <button class="mat-pill" data-mat="clay" title="Argila / Escultura Branca">
+                <span class="dot dot-clay"></span> Cerâmica
+              </button>
+              <button class="mat-pill" data-mat="normals" title="Mapa de Normais para checar curvaturas">
+                <span class="dot dot-normals"></span> Normais
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT PANEL: 3D PRINT SLICER METRICS & DOWNLOAD -->
+        <aside class="panel right-panel">
+          <div class="panel-section">
+            <h2 class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              Inspeção para Impressão 3D
+            </h2>
+
+            <!-- STATUS BADGE -->
+            <div class="manifold-status-card">
+              <div class="status-indicator-dot"></div>
+              <div>
+                <div class="status-title">Malha 100% Fechada (Manifold)</div>
+                <div class="status-sub">Zero buracos • Sólido perfeito para o Slicer</div>
+              </div>
+            </div>
+
+            <!-- PHYSICAL METRICS -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-label">Dimensão X (Largura)</span>
+                <span id="metric-x" class="metric-value">80.0 mm</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Dimensão Y (Profundidade)</span>
+                <span id="metric-y" class="metric-value">80.0 mm</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Dimensão Z (Altura)</span>
+                <span id="metric-z" class="metric-value">11.0 mm</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Contagem de Polígonos</span>
+                <span id="metric-triangles" class="metric-value">38.920 tris</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Volume do Objeto</span>
+                <span id="metric-vol" class="metric-value">25.6 cm³</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-label">Filamento PLA Est. (15%)</span>
+                <span id="metric-weight" class="metric-value">~14.2 g</span>
+              </div>
+            </div>
+
+            <div class="print-time-banner">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              <span>Tempo de Impressão Est.: <strong id="metric-time">~32m</strong> (a 60mm/s)</span>
+            </div>
+          </div>
+
+          <!-- EXPORT SECTION -->
+          <div class="panel-section export-section">
+            <h2 class="section-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Exportar Arquivos Gratuitos
+            </h2>
+
+            <!-- MAIN STL DOWNLOAD BUTTON -->
+            <button id="btn-export-stl-bin" class="btn-download-primary">
+              <div class="dl-icon-badge">STL</div>
+              <div class="dl-content">
+                <span class="dl-title">Baixar .STL (Binário)</span>
+                <span class="dl-sub">Ideal para Bambu Studio, Cura, PrusaSlicer</span>
+              </div>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>
+            </button>
+
+            <!-- SECONDARY FORMAT BUTTONS -->
+            <div class="secondary-exports">
+              <button id="btn-export-obj" class="btn-download-secondary">
+                <span class="file-ext">OBJ</span>
+                <span>Baixar .OBJ (Blender)</span>
+              </button>
+              <button id="btn-export-glb" class="btn-download-secondary">
+                <span class="file-ext">GLB</span>
+                <span>Baixar .GLB (Texturizado)</span>
+              </button>
+              <button id="btn-export-stl-ascii" class="btn-download-secondary">
+                <span class="file-ext">STL</span>
+                <span>STL ASCII (Texto)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- SLICER PARAMETERS CHEAT SHEET -->
+          <div class="panel-section slicer-guide-card">
+            <h3 class="guide-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              Dicas de Fatiamento (Cura / Bambu):
+            </h3>
+            <ul class="guide-list">
+              <li><strong>Orientação:</strong> O modelo já é gerado apoiado na base Z=0.</li>
+              <li><strong>Camada:</strong> 0.12mm (Alta definição) ou 0.20mm (Padrão).</li>
+              <li><strong>Preenchimento (Infill):</strong> 15% a 20% Gyroid ou Grid.</li>
+              <li><strong>Suportes:</strong> Não são necessários para relevos e medalhas!</li>
+            </ul>
+          </div>
+        </aside>
+      </main>
+
+      <!-- MODAL: HOW IT WORKS & MESHY ALTERNATIVES -->
+      <div id="modal-guide" class="modal-backdrop hidden">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h3>Como a Meshy Funciona e Como Usar 100% Grátis</h3>
+            <button class="btn-close-modal" id="btn-close-guide">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p>A plataforma <strong>Meshy.ai</strong> não cria modelos manualmente nem possui mágica proprietária exclusiva. Ela funciona rodando modelos abertos de inteligência artificial de <strong>Image-to-3D</strong> (como <em>TripoSR</em>, <em>Trellis</em>, <em>InstantMesh</em> e <em>Stable Fast 3D</em>) em servidores em nuvem, e cobra caro por créditos e assinaturas mensais.</p>
+
+            <div class="modal-highlight-box">
+              <h4>Por que criar sua própria plataforma é a melhor solução?</h4>
+              <ul>
+                <li><strong>Zero custo:</strong> Você não gasta créditos, não tem filas e não depende de tokens de plataformas pagas.</li>
+                <li><strong>Relevo e Litofania Estanque Instantâneo:</strong> Para medalhas, placas, chaveiros e moedas para impressão 3D (STL), o Forge3D gera o sólido manifold em 1 segundo direto no seu navegador.</li>
+                <li><strong>Modelos 360° com IA Neural:</strong> Você pode rodar os mesmos modelos de ponta (TripoSR / Trellis) na sua máquina ou via Hugging Face Spaces gratuitamente.</li>
+              </ul>
+            </div>
+
+            <h4>Formatos Suportados e Compatibilidade:</h4>
+            <table class="modal-table">
+              <tr>
+                <th>Formato</th>
+                <th>Finalidade Principal</th>
+                <th>Programas Compatíveis</th>
+              </tr>
+              <tr>
+                <td><strong>.STL</strong></td>
+                <td>Impressão 3D (FDM e Resina SLA)</td>
+                <td>Bambu Studio, Cura, PrusaSlicer, Orca</td>
+              </tr>
+              <tr>
+                <td><strong>.OBJ</strong></td>
+                <td>Modelagem e Escultura Digital</td>
+                <td>Blender, ZBrush, Maya, 3ds Max</td>
+              </tr>
+              <tr>
+                <td><strong>.GLB</strong></td>
+                <td>Jogos, Web e Realidade Virtual</td>
+                <td>Three.js, Unity, Unreal Engine, Godot</td>
+              </tr>
+            </table>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-primary" id="btn-ok-guide">Entendi, Voltar ao Estúdio</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL: LOCAL PYTHON AI BACKEND -->
+      <div id="modal-backend" class="modal-backdrop hidden">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h3>Servidor de IA Neural Local (TripoSR & Trellis)</h3>
+            <button class="btn-close-modal" id="btn-close-backend">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p>Criamos um script Python pronto para você rodar no seu computador (com suporte a Apple Silicon MPS ou GPU Nvidia). Ele atua como um clone local da API do Meshy, gerando modelos 360° completos em GLB e STL sem limites!</p>
+
+            <div class="code-block-wrap">
+              <div class="code-title">Como executar o servidor local:</div>
+              <pre class="code-snippet"><code>cd backend
+pip install -r requirements.txt
+python server.py</code></pre>
+            </div>
+
+            <p class="text-muted">Assim que iniciado em <code>http://localhost:8000</code>, qualquer imagem enviada pode ser processada diretamente pelos modelos neurais locais sem gastar um único centavo.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-primary" id="btn-ok-backend">Fechar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
