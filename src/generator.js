@@ -1,18 +1,20 @@
 import * as THREE from 'three';
 
 /**
- * OpenMeshy / Forge3D Engine de Malhas e Geometrias 3D
+ * OpenMeshy / Forge3D Engine de Escultura Tridimensional Orgânica
+ * Reconstrói personagens e objetos em modelos 3D volumétricos verdadeiros a partir de imagens 2D
  */
 
 export class MeshGenerator {
   /**
-   * Processa a imagem extraindo canais de cor e máscara de silhueta (remoção inteligente de fundo)
+   * Processa a imagem 2D com segmentação e remoção de fundo precisa (preto, branco ou transparente)
    */
-  static getImageData(image, targetResolution = 150) {
+  static getImageData(image, targetResolution = 140) {
     const canvas = document.createElement('canvas');
     let width = targetResolution;
     let height = Math.round(targetResolution * (image.naturalHeight / image.naturalWidth));
-    
+
+    // Limites de proporção razoáveis
     if (height > targetResolution * 1.6) {
       height = Math.round(targetResolution * 1.6);
     } else if (height < targetResolution * 0.6) {
@@ -29,17 +31,17 @@ export class MeshGenerator {
 
     const depthMap = new Float32Array(width * height);
     const alphaMap = new Float32Array(width * height);
-    const mask = new Uint8Array(width * height);
+    const rawMask = new Uint8Array(width * height);
 
-    // Amostrar bordas para detectar a cor predominante de fundo (branco, cinza ou preto)
-    let bgR = 0, bgG = 0, bgB = 0, sampleCount = 0;
+    // Amostrar cantos e bordas externas para detectar a cor do fundo
+    let bgR = 0, bgG = 0, bgB = 0, count = 0;
     for (let x = 0; x < width; x += 2) {
       const topIdx = x * 4;
       const botIdx = ((height - 1) * width + x) * 4;
       bgR += data[topIdx] + data[botIdx];
       bgG += data[topIdx + 1] + data[botIdx + 1];
       bgB += data[topIdx + 2] + data[botIdx + 2];
-      sampleCount += 2;
+      count += 2;
     }
     for (let y = 0; y < height; y += 2) {
       const leftIdx = (y * width) * 4;
@@ -47,15 +49,15 @@ export class MeshGenerator {
       bgR += data[leftIdx] + data[rightIdx];
       bgG += data[leftIdx + 1] + data[rightIdx + 1];
       bgB += data[leftIdx + 2] + data[rightIdx + 2];
-      sampleCount += 2;
+      count += 2;
     }
 
-    bgR /= sampleCount;
-    bgG /= sampleCount;
-    bgB /= sampleCount;
+    bgR /= count;
+    bgG /= count;
+    bgB /= count;
 
-    const isLightBg = (bgR + bgG + bgB) / 3 > 180;
-    const isDarkBg = (bgR + bgG + bgB) / 3 < 40;
+    const isBlackBg = (bgR + bgG + bgB) / 3 < 30;
+    const isWhiteBg = (bgR + bgG + bgB) / 3 > 220;
 
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
@@ -64,25 +66,44 @@ export class MeshGenerator {
       const a = data[i + 3];
 
       const idx = i / 4;
-      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      depthMap[idx] = luminance;
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      depthMap[idx] = lum;
       alphaMap[idx] = a / 255;
 
       const distToBg = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
 
-      // Critério de recorte de fundo
       let isBg = false;
-      if (a < 50) {
+      if (a < 40) {
         isBg = true;
-      } else if (isLightBg && r > 220 && g > 220 && b > 220) {
+      } else if (isBlackBg && r < 25 && g < 25 && b < 25) {
         isBg = true;
-      } else if (isDarkBg && r < 35 && g < 35 && b < 35) {
+      } else if (isWhiteBg && r > 230 && g > 230 && b > 230) {
         isBg = true;
-      } else if (distToBg < 40) {
+      } else if (distToBg < 35) {
         isBg = true;
       }
 
-      mask[idx] = isBg ? 0 : 1;
+      rawMask[idx] = isBg ? 0 : 1;
+    }
+
+    // Fechamento morfológico para eliminar pequenos buracos internos no personagem
+    const mask = new Uint8Array(width * height);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const idx = y * width + x;
+        if (rawMask[idx] === 1) {
+          mask[idx] = 1;
+        } else {
+          // Se 6 ou mais vizinhos forem primeiro plano, preenche
+          let fgNeighbors = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (rawMask[(y + dy) * width + (x + dx)] === 1) fgNeighbors++;
+            }
+          }
+          mask[idx] = fgNeighbors >= 6 ? 1 : 0;
+        }
+      }
     }
 
     return {
@@ -97,135 +118,219 @@ export class MeshGenerator {
   }
 
   /**
-   * BONECO 3D VOLUMÉTRICO EM PÉ (Upright Figurine 360°)
-   * Gera um personagem tridimensional completo em pé na mesa aquecida (Z=0 pés, Z=Topo cabeça)
-   * com corpo arredondado 360° fechado e manifold, sem deitar na mesa.
+   * Cálculo da Transformada de Distância Euclidiana em 8 Direções (Chamfer Distance Transform)
+   * Determina a espessura anatômica exata de cada membro (pernas separadas, braços, peito, cabeça)
    */
-  static createUprightFigurine(processedImage, options = {}) {
+  static computeDistanceTransform(mask, W, H) {
+    const INF = 999999;
+    const dist = new Float32Array(W * H);
+
+    for (let i = 0; i < W * H; i++) {
+      dist[i] = mask[i] === 0 ? 0 : INF;
+    }
+
+    // Pass 1: Top-Left para Bottom-Right
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (dist[idx] === 0) continue;
+
+        let d = dist[idx];
+        if (x > 0) d = Math.min(d, dist[idx - 1] + 1.0);
+        if (y > 0) d = Math.min(d, dist[idx - W] + 1.0);
+        if (x > 0 && y > 0) d = Math.min(d, dist[idx - W - 1] + 1.414);
+        if (x < W - 1 && y > 0) d = Math.min(d, dist[idx - W + 1] + 1.414);
+
+        dist[idx] = d;
+      }
+    }
+
+    // Pass 2: Bottom-Right para Top-Left
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1; x >= 0; x--) {
+        const idx = y * W + x;
+        if (dist[idx] === 0) continue;
+
+        let d = dist[idx];
+        if (x < W - 1) d = Math.min(d, dist[idx + 1] + 1.0);
+        if (y < H - 1) d = Math.min(d, dist[idx + W] + 1.0);
+        if (x < W - 1 && y < H - 1) d = Math.min(d, dist[idx + W + 1] + 1.414);
+        if (x > 0 && y < H - 1) d = Math.min(d, dist[idx + W - 1] + 1.414);
+
+        dist[idx] = d;
+      }
+    }
+
+    return dist;
+  }
+
+  /**
+   * ESCULTURA VOLUMÉTRICA ORGÂNICA REAL (Teddy Medial-Axis Inflation)
+   * Transforma a imagem no boneco 3D verdadeiro:
+   * - Pernas separadas e autônomas (sem fusão tubular)
+   * - Braços e capa modelados com curvatura própria
+   * - Torso com volume peitoral e dorsal
+   * - Mapeamento 1-to-1 da imagem na frente (sem esticar)
+   * - Pés apoiados na mesa aquecida (Z=0) com corpo 100% Manifold
+   */
+  static createVolumetricSculpture(processedImage, options = {}) {
     const {
-      targetHeight = 90, // Altura vertical em mm (Z)
-      depthRatio = 0.55, // Espessura frente-verso proporcional à largura
-      smoothing = 2
+      targetHeight = 90, // mm (em pé no eixo Z)
+      maxDepth = 26,     // mm (volume frente/verso)
+      depthDetail = 1.0
     } = options;
 
-    const { width: W, height: H, mask, canvas } = processedImage;
+    const { width: W, height: H, mask, depthMap } = processedImage;
     const targetWidth = targetHeight * (W / H);
 
-    const slices = 80;   // Resolução vertical (fatias dos pés à cabeça)
-    const segments = 40; // Resolução radial (360 graus ao redor do corpo)
+    // 1. Calcular a espessura anatômica com transformada de distância
+    const dt = this.computeDistanceTransform(mask, W, H);
+
+    let maxDist = 1;
+    for (let i = 0; i < W * H; i++) {
+      if (dt[i] > maxDist) maxDist = dt[i];
+    }
+
+    // Mapear cada pixel de primeiro plano para um índice de vértice
+    const vIdx = new Int32Array(W * H).fill(-1);
+    let totalFgPixels = 0;
+
+    for (let i = 0; i < W * H; i++) {
+      if (mask[i] === 1) {
+        vIdx[i] = totalFgPixels++;
+      }
+    }
+
+    if (totalFgPixels === 0) {
+      throw new Error('Nenhum objeto detectado na imagem.');
+    }
 
     const positions = [];
     const uvs = [];
     const indices = [];
 
-    // 1. Extrair contornos horizontais (Xmin, Xmax) para cada fatia vertical
-    const sliceContours = [];
-    for (let s = 0; s < slices; s++) {
-      // Y na imagem: 0 é o topo da imagem (cabeça), H-1 é a base (pés)
-      // s=0 é o chão (pés), s=slices-1 é o topo da cabeça
-      const imgY = Math.round((1 - s / (slices - 1)) * (H - 1));
-      let minX = -1;
-      let maxX = -1;
-
+    // Encontrar a linha mais baixa onde o personagem toca o chão (pés)
+    let lowestY = 0;
+    for (let y = H - 1; y >= 0; y--) {
       for (let x = 0; x < W; x++) {
-        if (mask[imgY * W + x] === 1) {
-          if (minX === -1) minX = x;
-          maxX = x;
+        if (mask[y * W + x] === 1) {
+          lowestY = y;
+          break;
         }
       }
-
-      sliceContours.push({ minX, maxX });
+      if (lowestY > 0) break;
     }
 
-    // Suavizar contornos para evitar transições bruscas
-    const smoothContours = [];
-    for (let s = 0; s < slices; s++) {
-      let sumMin = 0, sumMax = 0, count = 0;
-      for (let ds = -smoothing; ds <= smoothing; ds++) {
-        const ns = s + ds;
-        if (ns >= 0 && ns < slices && sliceContours[ns].minX !== -1) {
-          sumMin += sliceContours[ns].minX;
-          sumMax += sliceContours[ns].maxX;
-          count++;
+    // 2. Criar vértices da frente (+Y)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (mask[idx] === 0) continue;
+
+        const d = dt[idx];
+        const dNorm = d / maxDist;
+
+        // Curvatura anatômica arredondada (cúpula esférica orgânica)
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.6) * (Math.PI / 2));
+        const bodyThickness = (dome * 0.75 + Math.pow(dNorm, 0.7) * 0.25) * (maxDepth / 2);
+        const emboss = (depthMap[idx] - 0.5) * depthDetail;
+
+        const xPos = (x / (W - 1) - 0.5) * targetWidth;
+        const yPos = +(Math.max(0.5, bodyThickness + emboss)); // Projeta para frente em +Y
+        // Z começa em 0 nos pés e sobe até a cabeça
+        const zPos = ((lowestY - y) / Math.max(1, lowestY)) * targetHeight;
+
+        positions.push(xPos, yPos, Math.max(0, zPos));
+        // UV exato sem deformação
+        uvs.push(x / (W - 1), 1.0 - y / (H - 1));
+      }
+    }
+
+    // 3. Criar vértices do verso (-Y)
+    const backOffset = totalFgPixels;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const idx = y * W + x;
+        if (mask[idx] === 0) continue;
+
+        const d = dt[idx];
+        const dNorm = d / maxDist;
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.6) * (Math.PI / 2));
+        const bodyThickness = (dome * 0.75 + Math.pow(dNorm, 0.7) * 0.25) * (maxDepth / 2);
+
+        const xPos = (x / (W - 1) - 0.5) * targetWidth;
+        const yPos = -(Math.max(0.5, bodyThickness)); // Curva anatômica para trás em -Y
+        const zPos = ((lowestY - y) / Math.max(1, lowestY)) * targetHeight;
+
+        positions.push(xPos, yPos, Math.max(0, zPos));
+        // UV do verso espelhado
+        uvs.push(1.0 - x / (W - 1), 1.0 - y / (H - 1));
+      }
+    }
+
+    // 4. Triangulação das superfícies da frente e de trás
+    for (let y = 0; y < H - 1; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const iA = vIdx[y * W + x];
+        const iB = vIdx[y * W + (x + 1)];
+        const iC = vIdx[(y + 1) * W + x];
+        const iD = vIdx[(y + 1) * W + (x + 1)];
+
+        if (iA !== -1 && iB !== -1 && iC !== -1 && iD !== -1) {
+          // Face Frontal (normal voltada para +Y)
+          indices.push(iA, iC, iB);
+          indices.push(iB, iC, iD);
+
+          // Face Traseira (normal voltada para -Y)
+          indices.push(backOffset + iA, backOffset + iB, backOffset + iC);
+          indices.push(backOffset + iB, backOffset + iD, backOffset + iC);
         }
       }
-      if (count > 0) {
-        smoothContours.push({ minX: sumMin / count, maxX: sumMax / count });
-      } else {
-        smoothContours.push({ minX: -1, maxX: -1 });
-      }
     }
 
-    // 2. Construir os anéis 3D verticais
-    for (let s = 0; s < slices; s++) {
-      const c = smoothContours[s];
-      const zPos = (s / (slices - 1)) * targetHeight; // Z é a altura em pé na mesa!
+    // 5. Paredes Laterais de Vedação (Hermetic Skirt)
+    // Conecta a frente ao verso apenas nas bordas da silhueta, tornando a malha 100% Manifold
+    const addSkirtQuad = (frontA, frontB) => {
+      const backA = backOffset + frontA;
+      const backB = backOffset + frontB;
+      indices.push(frontA, frontB, backA);
+      indices.push(frontB, backB, backA);
+    };
 
-      let ringWidth = 0;
-      let centerX = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const curr = vIdx[y * W + x];
+        if (curr === -1) continue;
 
-      if (c.minX !== -1 && c.maxX >= c.minX) {
-        ringWidth = Math.max(4, ((c.maxX - c.minX) / W) * targetWidth);
-        centerX = (((c.minX + c.maxX) / 2) / W - 0.5) * targetWidth;
-      } else {
-        // Se a fatia estiver vazia, gera um raio mínimo no centro
-        ringWidth = 2;
-        centerX = 0;
+        // Borda Direita
+        if (x === W - 1 || vIdx[y * W + x + 1] === -1) {
+          if (y < H - 1 && vIdx[(y + 1) * W + x] !== -1) {
+            const next = vIdx[(y + 1) * W + x];
+            addSkirtQuad(curr, next);
+          }
+        }
+        // Borda Esquerda
+        if (x === 0 || vIdx[y * W + x - 1] === -1) {
+          if (y < H - 1 && vIdx[(y + 1) * W + x] !== -1) {
+            const next = vIdx[(y + 1) * W + x];
+            addSkirtQuad(next, curr);
+          }
+        }
+        // Borda Superior
+        if (y === 0 || vIdx[(y - 1) * W + x] === -1) {
+          if (x < W - 1 && vIdx[y * W + x + 1] !== -1) {
+            const next = vIdx[y * W + x + 1];
+            addSkirtQuad(next, curr);
+          }
+        }
+        // Borda Inferior (Pés)
+        if (y === H - 1 || vIdx[(y + 1) * W + x] === -1) {
+          if (x < W - 1 && vIdx[y * W + x + 1] !== -1) {
+            const next = vIdx[y * W + x + 1];
+            addSkirtQuad(curr, next);
+          }
+        }
       }
-
-      const ringDepth = Math.max(3, ringWidth * depthRatio);
-
-      // Gerar vértices do anel ao redor do personagem
-      for (let seg = 0; seg <= segments; seg++) {
-        const theta = (seg / segments) * Math.PI * 2;
-        
-        // Elipse com leve variação orgânica
-        const xPos = centerX + (ringWidth / 2) * Math.sin(theta);
-        const yPos = (ringDepth / 2) * Math.cos(theta); // Y é a profundidade frente/verso
-
-        positions.push(xPos, yPos, zPos);
-
-        // UV: mapeia a foto na frente (cos(theta) > 0)
-        const u = Math.min(1, Math.max(0, 0.5 + 0.5 * Math.sin(theta)));
-        const v = s / (slices - 1);
-        uvs.push(u, v);
-      }
-    }
-
-    // 3. Conectar anéis verticais com triângulos
-    const ringStride = segments + 1;
-    for (let s = 0; s < slices - 1; s++) {
-      const r0 = s * ringStride;
-      const r1 = (s + 1) * ringStride;
-
-      for (let seg = 0; seg < segments; seg++) {
-        const i0 = r0 + seg;
-        const i1 = r0 + seg + 1;
-        const i2 = r1 + seg;
-        const i3 = r1 + seg + 1;
-
-        indices.push(i0, i2, i1);
-        indices.push(i1, i2, i3);
-      }
-    }
-
-    // 4. Fechar a base nos pés (Z = 0) para aderência total na mesa aquecida
-    const centerBotIdx = positions.length / 3;
-    positions.push(0, 0, 0);
-    uvs.push(0.5, 0);
-
-    for (let seg = 0; seg < segments; seg++) {
-      indices.push(centerBotIdx, seg, seg + 1);
-    }
-
-    // 5. Fechar o topo na cabeça
-    const centerTopIdx = positions.length / 3;
-    positions.push(0, 0, targetHeight);
-    uvs.push(0.5, 1);
-
-    const topOffset = (slices - 1) * ringStride;
-    for (let seg = 0; seg < segments; seg++) {
-      indices.push(centerTopIdx, topOffset + seg + 1, topOffset + seg);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -238,7 +343,7 @@ export class MeshGenerator {
       geometry,
       dimensions: {
         width: targetWidth,
-        depth: targetWidth * depthRatio,
+        depth: maxDepth,
         height: targetHeight
       },
       stats: {

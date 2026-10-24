@@ -264,10 +264,10 @@ class StudioApp {
     const processed = MeshGenerator.getImageData(this.currentImage, 140);
     this.viewer.setTextureFromCanvas(processed.canvas);
 
-    const result = MeshGenerator.createUprightFigurine(processed, {
+    const result = MeshGenerator.createVolumetricSculpture(processed, {
       targetHeight: this.options.targetHeight,
-      depthRatio: this.options.depthRatio || 0.55,
-      smoothing: this.options.smoothing
+      maxDepth: 26,
+      depthDetail: 1.2
     });
 
     this.viewer.setModel(result.geometry, result.dimensions);
