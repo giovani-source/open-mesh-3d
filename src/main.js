@@ -403,11 +403,13 @@ class StudioApp {
 
   bindApiModal() {
     const apiModal = document.getElementById('modal-api');
-    const keyInput = document.getElementById('meshy-key-input');
+    const geminiInput = document.getElementById('gemini-key-input');
+    const meshyInput = document.getElementById('meshy-key-input');
     const saveBtn = document.getElementById('btn-save-api');
 
     document.getElementById('btn-open-api-config').addEventListener('click', () => {
-      keyInput.value = CloudAIService.getStoredMeshyKey();
+      geminiInput.value = CloudAIService.getStoredGeminiKey();
+      meshyInput.value = CloudAIService.getStoredMeshyKey();
       apiModal.classList.remove('hidden');
     });
 
@@ -416,12 +418,11 @@ class StudioApp {
     });
 
     saveBtn.addEventListener('click', () => {
-      CloudAIService.setStoredMeshyKey(keyInput.value);
+      CloudAIService.setStoredGeminiKey(geminiInput.value);
+      CloudAIService.setStoredMeshyKey(meshyInput.value);
       this.updateApiKeyBadge();
       apiModal.classList.add('hidden');
-      if (keyInput.value.trim()) {
-        alert('Chave salva! Agora o boneco será gerado diretamente na nuvem da Meshy.');
-      }
+      alert('Chaves salvas com sucesso no navegador!');
     });
   }
 }

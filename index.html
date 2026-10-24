@@ -350,33 +350,39 @@
         </aside>
       </main>
 
-      <!-- MODAL: CONECTAR API MESHY / TRELLIS -->
+      <!-- MODAL: CONECTAR APIS DE IA -->
       <div id="modal-api" class="modal-backdrop hidden">
         <div class="modal-dialog">
           <div class="modal-header">
-            <h3>Conectar IA Neural Meshy (7.1 Flagship) & Trellis</h3>
+            <h3>Conectar Chaves de Inteligência Artificial</h3>
             <button class="btn-close-modal" id="btn-close-api">&times;</button>
           </div>
           <div class="modal-body">
-            <p>Para gerar bonecos 360° com a máxima definição da IA exatamente como no print do Meshy (sem usar memória RAM do seu computador):</p>
-
+            <!-- GOOGLE GEMINI KEY -->
             <div class="input-card">
-              <label for="meshy-key-input">Sua Chave de API Meshy (Grátis):</label>
+              <label for="gemini-key-input">Sua Chave Google Gemini AI (Google AI Studio):</label>
+              <input type="password" id="gemini-key-input" placeholder="Cole sua chave aqui (ex: AQ.Ab8RN...)" class="custom-text-input" />
+              <span class="input-sub">Salva localmente no seu navegador (localStorage) para segurança.</span>
+            </div>
+
+            <!-- MESHY KEY -->
+            <div class="input-card" style="margin-top: 10px;">
+              <label for="meshy-key-input">Sua Chave Meshy.ai (Para o motor Meshy 7.1 Flagship):</label>
               <input type="password" id="meshy-key-input" placeholder="msy_xxxxxxxxxxxxxxxxxxxxxx" class="custom-text-input" />
-              <span class="input-sub">A chave fica gravada apenas no seu navegador (localStorage).</span>
+              <span class="input-sub">Chave específica para o gerador 3D da Meshy (começa com msy_).</span>
             </div>
 
             <div class="modal-highlight-box">
-              <h4>Como pegar sua chave gratuita em 30 segundos:</h4>
+              <h4>Como pegar a chave da Meshy em 30 segundos (Grátis):</h4>
               <ol>
-                <li>Acesse <strong>meshy.ai</strong> com sua conta Google.</li>
-                <li>Clique no seu perfil no canto inferior esquerdo e vá em <strong>Settings ➔ API Keys</strong>.</li>
-                <li>Clique em <strong>Create Key</strong>, copie e cole aqui!</li>
+                <li>Acesse <strong><a href="https://www.meshy.ai" target="_blank" style="color: #00f2fe;">meshy.ai</a></strong> na aba que você já está logado.</li>
+                <li>No menu da esquerda, clique no ícone do seu perfil ou na engrenagem <strong>Settings ➔ API Keys</strong>.</li>
+                <li>Clique em <strong>Create Key</strong> (começa com <code>msy_...</code>) e cole acima!</li>
               </ol>
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn-primary" id="btn-save-api">Salvar Chave & Ativar</button>
+            <button class="btn-primary" id="btn-save-api">Salvar Chaves & Ativar</button>
           </div>
         </div>
       </div>
