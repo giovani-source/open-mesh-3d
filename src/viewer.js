@@ -31,8 +31,9 @@ export class Viewer3D {
     const height = this.container.clientHeight || 600;
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
-    // Câmera posicionada de frente para o boneco em pé (olhando levemente de cima)
-    this.camera.position.set(0, -180, 70);
+    // Definir Z como vertical (padrão de impressoras 3D e fatiadores)
+    this.camera.up.set(0, 0, 1);
+    this.camera.position.set(0, -170, 65);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setSize(width, height);
@@ -47,8 +48,8 @@ export class Viewer3D {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.maxPolarAngle = Math.PI / 2 + 0.15;
-    this.controls.target.set(0, 0, 45); // Foco no centro do boneco em pé
+    this.controls.maxPolarAngle = Math.PI / 2 + 0.08;
+    this.controls.target.set(0, 0, 45); // Foco no centro do boneco em pé (Z = 45mm)
     this.controls.update();
 
     this.modelGroup = new THREE.Group();
@@ -326,18 +327,19 @@ export class Viewer3D {
   }
 
   setCameraView(view) {
+    const targetZ = this.controls.target.z || 45;
     switch (view) {
       case 'iso':
-        this.camera.position.set(90, -140, 90);
+        this.camera.position.set(110, -130, 85);
         break;
       case 'top':
-        this.camera.position.set(0, 0, 240);
+        this.camera.position.set(0, -0.01, 230);
         break;
       case 'front':
-        this.camera.position.set(0, -200, 45); // Olhando o boneco de frente
+        this.camera.position.set(0, -170, targetZ);
         break;
       case 'side':
-        this.camera.position.set(200, 0, 45); // Olhando o perfil lateral
+        this.camera.position.set(170, 0, targetZ);
         break;
     }
     this.controls.update();
