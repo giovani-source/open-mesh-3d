@@ -12,6 +12,7 @@
     "vite": "^8.3.4"
   },
   "dependencies": {
+    "@gradio/client": "^2.7.1",
     "three": "^0.186.1"
   }
 }

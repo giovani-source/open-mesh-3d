@@ -175,7 +175,9 @@ export class Viewer3D {
     this.controls.target.set(0, 0, targetZ);
   }
 
-  async loadGLBFromUrl(url) {
+  async loadGLBFromUrl(url, options = {}) {
+    const { targetHeight = 90, addPedestal = true } = options;
+
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
         url,
@@ -185,30 +187,86 @@ export class Viewer3D {
             if (obj.geometry) obj.geometry.dispose();
             this.modelGroup.remove(obj);
           }
+          this.pedestalMesh = null;
+          this.wireframeMesh = null;
 
           const model = gltf.scene;
-          
+
           // Orientar o modelo em pé se vier em eixos Y-up
           const bbox = new THREE.Box3().setFromObject(model);
           const size = bbox.getSize(new THREE.Vector3());
           
-          // Se Y for a maior dimensão, gira para Z-up
-          if (size.y > size.z) {
+          if (size.y >= size.z * 0.8) {
             model.rotation.x = Math.PI / 2;
           }
 
+          // Computar normais suaves Gouraud/Phong para eliminar facetas serrilhadas
+          model.traverse((child) => {
+            if (child.isMesh && child.geometry) {
+              child.geometry.computeVertexNormals();
+
+              // Se não tiver UVs, gerar projeção planar frontal para mapear a textura da imagem
+              if (!child.geometry.attributes.uv && child.geometry.attributes.position) {
+                const pos = child.geometry.attributes.position;
+                const mBox = new THREE.Box3().setFromBufferAttribute(pos);
+                const spanX = Math.max(0.001, mBox.max.x - mBox.min.x);
+                const spanY = Math.max(0.001, mBox.max.y - mBox.min.y);
+                const uvs = new Float32Array(pos.count * 2);
+                for (let i = 0; i < pos.count; i++) {
+                  const px = pos.getX(i);
+                  const py = pos.getY(i);
+                  uvs[i * 2] = (px - mBox.min.x) / spanX;
+                  uvs[i * 2 + 1] = (py - mBox.min.y) / spanY;
+                }
+                child.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+              }
+            }
+          });
+
+          // Escalar com base na altura desejada
           const newBbox = new THREE.Box3().setFromObject(model);
           const newSize = newBbox.getSize(new THREE.Vector3());
-          const maxDim = Math.max(newSize.x, newSize.y, newSize.z);
-          const targetScale = maxDim > 0 ? 90 / maxDim : 1;
+          const maxDim = newSize.z > 0 ? newSize.z : Math.max(newSize.x, newSize.y);
+          const targetScale = maxDim > 0 ? targetHeight / maxDim : 1;
           model.scale.set(targetScale, targetScale, targetScale);
 
-          // Centralizar na mesa com pés em Z=0
+          // Centralizar na mesa aquecida (X=0, Y=0) com os pés em Z=0
           const finalBbox = new THREE.Box3().setFromObject(model);
           const finalCenter = finalBbox.getCenter(new THREE.Vector3());
           model.position.x = -finalCenter.x;
           model.position.y = -finalCenter.y;
-          model.position.z = -finalBbox.min.z; // Pés perfeitamente encostados na mesa aquecida!
+          model.position.z = -finalBbox.min.z;
+
+          const scaledBbox = new THREE.Box3().setFromObject(model);
+          const scaledSize = scaledBbox.getSize(new THREE.Vector3());
+
+          // Adicionar Pedestal sólido chanfrado de apoio para a mesa se ativado
+          let pedestalHeight = 0;
+          if (addPedestal) {
+            pedestalHeight = 3.5;
+            const pRadiusX = Math.max(22, scaledSize.x * 0.62);
+            const pRadiusY = Math.max(18, scaledSize.y * 0.62);
+
+            const pedGeo = new THREE.CylinderGeometry(pRadiusX * 0.95, pRadiusX, pedestalHeight, 64);
+            pedGeo.rotateX(Math.PI / 2);
+            pedGeo.scale(1, pRadiusY / pRadiusX, 1);
+            pedGeo.translate(0, 0, pedestalHeight / 2);
+            pedGeo.computeVertexNormals();
+
+            const pedMat = new THREE.MeshStandardMaterial({
+              color: 0x1e2736,
+              roughness: 0.6,
+              metalness: 0.3
+            });
+
+            this.pedestalMesh = new THREE.Mesh(pedGeo, pedMat);
+            this.pedestalMesh.castShadow = true;
+            this.pedestalMesh.receiveShadow = true;
+            this.modelGroup.add(this.pedestalMesh);
+
+            // Elevar o modelo para o topo do pedestal
+            model.position.z += pedestalHeight;
+          }
 
           let primaryMesh = null;
           let totalTriangles = 0;
@@ -234,20 +292,36 @@ export class Viewer3D {
           this.currentModel = model;
           this.modelGroup.add(model);
 
-          const uprightBox = new THREE.Box3().setFromObject(model);
-          const uprightSize = uprightBox.getSize(new THREE.Vector3());
+          // Criar malha wireframe para inspeção técnica
+          if (primaryMesh && primaryMesh.geometry) {
+            const wireMat = new THREE.MeshBasicMaterial({
+              color: 0x00f2fe,
+              wireframe: true,
+              transparent: true,
+              opacity: 0.25
+            });
+            this.wireframeMesh = new THREE.Mesh(primaryMesh.geometry, wireMat);
+            this.wireframeMesh.visible = this.wireframeVisible;
+            model.add(this.wireframeMesh);
+          }
 
-          this.controls.target.set(0, 0, uprightSize.z / 2);
+          // Aplicar o material ativo
+          this.applyMaterial(this.materialMode);
+
+          const fullBox = new THREE.Box3().setFromObject(this.modelGroup);
+          const fullSize = fullBox.getSize(new THREE.Vector3());
+
+          this.controls.target.set(0, 0, fullSize.z / 2);
 
           resolve({
             dimensions: {
-              width: uprightSize.x,
-              depth: uprightSize.y,
-              height: uprightSize.z
+              width: fullSize.x,
+              depth: fullSize.y,
+              height: fullSize.z
             },
             stats: {
-              triangles: Math.round(totalTriangles),
-              vertices: totalVertices,
+              triangles: Math.round(totalTriangles + (addPedestal ? 128 : 0)),
+              vertices: totalVertices + (addPedestal ? 66 : 0),
               isManifold: true
             }
           });
@@ -257,6 +331,7 @@ export class Viewer3D {
       );
     });
   }
+
 
   getMaterial(mode) {
     switch (mode) {
@@ -346,10 +421,17 @@ export class Viewer3D {
   }
 
   exportSTL(filename = 'boneco_3d.stl', isBinary = true) {
-    const targetObj = this.currentModel || this.currentMesh;
-    if (!targetObj) return null;
+    if (!this.modelGroup || this.modelGroup.children.length === 0) return null;
+    
+    const exportGroup = new THREE.Group();
+    this.modelGroup.children.forEach(child => {
+      if (child !== this.wireframeMesh && child.visible) {
+        exportGroup.add(child.clone());
+      }
+    });
+
     const exporter = new STLExporter();
-    const result = exporter.parse(targetObj, { binary: isBinary });
+    const result = exporter.parse(exportGroup, { binary: isBinary });
 
     const blob = new Blob([result], {
       type: isBinary ? 'application/octet-stream' : 'text/plain'
@@ -365,10 +447,17 @@ export class Viewer3D {
   }
 
   exportOBJ(filename = 'boneco_3d.obj') {
-    const targetObj = this.currentModel || this.currentMesh;
-    if (!targetObj) return null;
+    if (!this.modelGroup || this.modelGroup.children.length === 0) return null;
+    
+    const exportGroup = new THREE.Group();
+    this.modelGroup.children.forEach(child => {
+      if (child !== this.wireframeMesh && child.visible) {
+        exportGroup.add(child.clone());
+      }
+    });
+
     const exporter = new OBJExporter();
-    const result = exporter.parse(targetObj);
+    const result = exporter.parse(exportGroup);
 
     const blob = new Blob([result], { type: 'text/plain' });
     const link = document.createElement('a');
@@ -381,11 +470,18 @@ export class Viewer3D {
   }
 
   exportGLB(filename = 'boneco_3d.glb') {
-    const targetObj = this.currentModel || this.currentMesh;
-    if (!targetObj) return;
+    if (!this.modelGroup || this.modelGroup.children.length === 0) return;
+    
+    const exportGroup = new THREE.Group();
+    this.modelGroup.children.forEach(child => {
+      if (child !== this.wireframeMesh && child.visible) {
+        exportGroup.add(child.clone());
+      }
+    });
+
     const exporter = new GLTFExporter();
     exporter.parse(
-      targetObj,
+      exportGroup,
       (gltf) => {
         const blob = new Blob([gltf], { type: 'application/octet-stream' });
         const link = document.createElement('a');
@@ -398,6 +494,7 @@ export class Viewer3D {
       { binary: true }
     );
   }
+
 
   animate() {
     requestAnimationFrame(() => this.animate());

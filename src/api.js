@@ -1,9 +1,78 @@
+import { Client } from '@gradio/client';
+
 /**
  * Forge3D AI - Cloud AI Service Connector
- * Suporta Google Gemini Vision, Meshy AI e Microsoft TRELLIS
+ * Suporta Tencent Hunyuan3D-2 (Nativo Grátis), Google Gemini Vision e Meshy AI
  */
 
 export class CloudAIService {
+  /**
+   * Gera modelo 3D volumétrico real 360° através da IA Tencent Hunyuan3D-2 (100% Gratuito, sem necessidade de API key)
+   */
+  static async generateWithHunyuan3D(imageBlobOrUrl, onProgress = () => {}) {
+    onProgress({ stage: 'connecting', percent: 10, message: 'Conectando ao cluster neural Hunyuan3D-2...' });
+    
+    let imageBlob = imageBlobOrUrl;
+    if (typeof imageBlobOrUrl === 'string') {
+      const res = await fetch(imageBlobOrUrl);
+      imageBlob = await res.blob();
+    }
+
+    onProgress({ stage: 'uploading', percent: 25, message: 'Enviando imagem para a IA...' });
+
+    const app = await Client.connect('frogleo/Image-to-3D');
+    
+    onProgress({ stage: 'generating', percent: 45, message: 'IA esculpindo anatomia 360° com redes neurais...' });
+
+    let simPercent = 45;
+    const interval = setInterval(() => {
+      if (simPercent < 85) {
+        simPercent += 5;
+        onProgress({ stage: 'generating', percent: simPercent, message: `Reconstruindo malha orgânica 3D: ${simPercent}%...` });
+      }
+    }, 2000);
+
+    try {
+      const result = await app.predict('/gen_shape', {
+        image: imageBlob,
+        steps: 12,
+        guidance_scale: 5.5,
+        seed: 1234,
+        octree_resolution: 256,
+        num_chunks: 8000,
+        target_face_num: 10000,
+        randomize_seed: true
+      });
+
+      clearInterval(interval);
+      onProgress({ stage: 'finalizing', percent: 92, message: 'Finalizando topologia manifold para impressão 3D...' });
+
+      let glbUrl = null;
+      let objUrl = null;
+
+      if (Array.isArray(result.data)) {
+        if (typeof result.data[2] === 'string' && result.data[2].endsWith('.glb')) {
+          glbUrl = `https://frogleo-image-to-3d.hf.space${result.data[2]}`;
+        }
+        if (result.data[1]?.value?.url) {
+          objUrl = result.data[1].value.url;
+        } else if (typeof result.data[3] === 'string' && result.data[3].endsWith('.obj')) {
+          objUrl = `https://frogleo-image-to-3d.hf.space${result.data[3]}`;
+        }
+      }
+
+      if (!glbUrl && !objUrl) {
+        throw new Error('A IA concluiu o processamento mas o arquivo 3D não foi retornado.');
+      }
+
+      onProgress({ stage: 'done', percent: 100, message: 'Modelo 3D volumétrico gerado com sucesso!' });
+      return { glbUrl, objUrl, rawData: result.data };
+    } catch (err) {
+      clearInterval(interval);
+      throw err;
+    }
+  }
+
   static getStoredGeminiKey() {
     return localStorage.getItem('forge3d_gemini_api_key') || '';
   }

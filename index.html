@@ -66,13 +66,28 @@
                 </div>
                 <img id="image-preview" class="image-preview hidden" alt="Prévia da Imagem" />
               </div>
+
+              <!-- SMART TURNAROUND POSE SELECTOR -->
+              <div id="pose-selector" class="pose-selector hidden">
+                <div class="pose-header">
+                  <span>⚡ Poses detectadas no desenho:</span>
+                  <span class="badge-ai">AUTO-CROP</span>
+                </div>
+                <div class="pose-pills" id="pose-pills-container">
+                  <!-- Pílulas preenchidas dinamicamente -->
+                </div>
+              </div>
             </div>
 
             <!-- PRESET SAMPLES -->
             <div class="presets-row">
               <span class="presets-label">Ou teste um exemplo rápido:</span>
               <div class="preset-thumbnails">
-                <button class="preset-btn active" data-sample="superman" title="Superman (Herói)">
+                <button class="preset-btn active" data-sample="orange_bot" title="Robozinho Laranja (Seu Desenho)">
+                  <img src="./samples/bot_front.png" alt="Robozinho" />
+                  <span>Robozinho</span>
+                </button>
+                <button class="preset-btn" data-sample="superman" title="Superman (Herói)">
                   <img src="./samples/superman.png" alt="Superman" />
                   <span>Superman</span>
                 </button>
@@ -100,10 +115,15 @@
             <div class="engine-tabs">
               <button class="engine-tab active" data-engine="volumetric">
                 <div class="tab-badge-row">
-                  <span class="tab-title">Escultura 3D Anatômica (Personagens)</span>
+                  <span class="tab-title">Escultura 3D Orgânica (Sculptor3D)</span>
                   <span class="badge-star">RECOMENDADO</span>
                 </div>
-                <div class="tab-desc">Infla o personagem em 360° em pé na mesa, com membros separados e curvas anatômicas</div>
+                <div class="tab-desc">Infla o desenho em 360° com curvaturas anatômicas e suavização contínua Laplaciana, livre de arestas e 100% pronta para o fatiador</div>
+              </button>
+
+              <button class="engine-tab" data-engine="neural">
+                <div class="tab-title">IA Neural na Nuvem (Hunyuan3D / Trellis)</div>
+                <div class="tab-desc">Reconstrução por difusão volumétrica em cluster neural (ZeroGPU / API Meshy)</div>
               </button>
 
               <button class="engine-tab" data-engine="relief">
@@ -161,8 +181,11 @@
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
               </svg>
-              <span id="btn-generate-text">Atualizar Escultura 3D</span>
+              <span id="btn-generate-text">Gerar Modelo 3D com IA Neural</span>
             </button>
+            <div id="progress-container" class="progress-container hidden">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
             <div id="gen-status" class="gen-status-text">Modelo pronto para inspeção e impressão 3D</div>
           </div>
         </aside>

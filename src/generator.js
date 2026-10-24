@@ -314,11 +314,99 @@ export class MeshGenerator {
   }
 
   /**
+   * Suavização Gaussiana 2D separável para eliminar degraus e ruídos discretos de pixel
+   */
+  static gaussianBlur2D(grid, W, H) {
+    const temp = new Float32Array(W * H);
+    const out = new Float32Array(W * H);
+    const kernel = [0.061, 0.242, 0.383, 0.242, 0.061]; // 5-tap Gaussian
+    const offset = 2;
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0, weightSum = 0;
+        for (let k = -offset; k <= offset; k++) {
+          const nx = Math.min(W - 1, Math.max(0, x + k));
+          const w = kernel[k + offset];
+          sum += grid[y * W + nx] * w;
+          weightSum += w;
+        }
+        temp[y * W + x] = sum / weightSum;
+      }
+    }
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0, weightSum = 0;
+        for (let k = -offset; k <= offset; k++) {
+          const ny = Math.min(H - 1, Math.max(0, y + k));
+          const w = kernel[k + offset];
+          sum += temp[ny * W + x] * w;
+          weightSum += w;
+        }
+        out[y * W + x] = sum / weightSum;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Suavização Laplaciana 3D para eliminar facetas, arestas serrilhadas e escadas de pixel
+   */
+  static applyLaplacianSmoothing(positions, indices, iterations = 4, lambda = 0.45) {
+    const vCount = positions.length / 3;
+    const adj = Array.from({ length: vCount }, () => []);
+
+    for (let i = 0; i < indices.length; i += 3) {
+      const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+      adj[a].push(b, c);
+      adj[b].push(a, c);
+      adj[c].push(a, b);
+    }
+
+    for (let i = 0; i < vCount; i++) {
+      adj[i] = Array.from(new Set(adj[i]));
+    }
+
+    const temp = new Float32Array(positions.length);
+
+    for (let it = 0; it < iterations; it++) {
+      for (let i = 0; i < vCount; i++) {
+        const neighbors = adj[i];
+        if (neighbors.length === 0) {
+          temp[i * 3] = positions[i * 3];
+          temp[i * 3 + 1] = positions[i * 3 + 1];
+          temp[i * 3 + 2] = positions[i * 3 + 2];
+          continue;
+        }
+
+        let avgX = 0, avgY = 0, avgZ = 0;
+        for (let n of neighbors) {
+          avgX += positions[n * 3];
+          avgY += positions[n * 3 + 1];
+          avgZ += positions[n * 3 + 2];
+        }
+        avgX /= neighbors.length;
+        avgY /= neighbors.length;
+        avgZ /= neighbors.length;
+
+        temp[i * 3] = positions[i * 3] + lambda * (avgX - positions[i * 3]);
+        temp[i * 3 + 1] = positions[i * 3 + 1] + lambda * (avgY - positions[i * 3 + 1]);
+        temp[i * 3 + 2] = positions[i * 3 + 2] + lambda * (avgZ - positions[i * 3 + 2]);
+      }
+
+      for (let i = 0; i < positions.length; i++) {
+        positions[i] = temp[i];
+      }
+    }
+  }
+
+  /**
    * ESCULTURA 3D VOLUMÉTRICA ORGÂNICA REAL COM PROPORÇÕES ANATÔMICAS REAIS
    * - O personagem fica 100% em pé na mesa aquecida (eixo Z vertical)
    * - Proporções X/Z reais baseadas na silhueta recortada (sem esticar)
    * - Membros separados com volume arredondado (pernas, braços, capa, torso)
-   * - Pedestal integrado opcional para estabilidade absoluta na impressão
+   * - Transições suaves livres de facetas serrilhadas ou degraus de pixel
    */
   static createVolumetricSculpture(processedImage, options = {}) {
     const {
@@ -335,11 +423,11 @@ export class MeshGenerator {
     const charW = Math.max(1, maxX - minX);
     const charH = Math.max(1, maxY - minY);
 
-    // Proporção anatômica verdadeira do personagem
     const targetWidth = targetHeight * (charW / charH);
 
-    // Transformada de Distância
-    const dt = this.computeDistanceTransform(mask, W, H);
+    // Transformada de Distância e Suavização Gaussiana Contínua
+    const rawDt = this.computeDistanceTransform(mask, W, H);
+    const dt = this.gaussianBlur2D(rawDt, W, H);
 
     let maxDist = 1;
     for (let i = 0; i < W * H; i++) {
@@ -373,27 +461,27 @@ export class MeshGenerator {
         if (mask[idx] === 0) continue;
 
         const d = dt[idx];
-        const dNorm = d / maxDist;
+        const dNorm = Math.min(1.0, d / maxDist);
+
+        // Suavização cúbica nas bordas (Hermite smoothstep): espessura vai a 0 na borda
+        const edgeT = Math.min(1.0, dNorm * 4.5);
+        const edgeFade = edgeT * edgeT * (3.0 - 2.0 * edgeT);
 
         // Curvatura esférica/cilíndrica orgânica
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.72 + Math.pow(dNorm, 0.65) * 0.28) * (maxDepth / 2);
-        const emboss = (reliefMap[idx] || 0) * depthDetail * 1.5;
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
+        const bodyThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade;
+        const emboss = (reliefMap[idx] || 0) * depthDetail * 1.2 * edgeFade;
 
-        // X proporcional centralizado no eixo
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        // Frente projeta para -Y (em direção ao observador)
-        const yPos = -(Math.max(0.6, bodyThickness + emboss));
-        // Z em pé: pés em zBaseOffset, cabeça em targetHeight
+        const yPos = -(bodyThickness + emboss);
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
-        // UV exato no canvas original
         uvs.push(x / (W - 1), 1.0 - y / (H - 1));
       }
     }
 
-    // 2. Vértices do Verso (Orientados para +Y, costas do boneco)
+    // 2. Vértices do Verso (Costas do boneco, voltados para +Y)
     const backOffset = totalFgPixels;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -401,13 +489,15 @@ export class MeshGenerator {
         if (mask[idx] === 0) continue;
 
         const d = dt[idx];
-        const dNorm = d / maxDist;
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.72 + Math.pow(dNorm, 0.65) * 0.28) * (maxDepth / 2);
+        const dNorm = Math.min(1.0, d / maxDist);
+        const edgeT = Math.min(1.0, dNorm * 4.5);
+        const edgeFade = edgeT * edgeT * (3.0 - 2.0 * edgeT);
+
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
+        const bodyThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade * 0.92;
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        // Costas projetam para +Y
-        const yPos = +(Math.max(0.6, bodyThickness * 0.88));
+        const yPos = +(bodyThickness);
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
@@ -424,18 +514,16 @@ export class MeshGenerator {
         const iD = vIdx[(y + 1) * W + (x + 1)];
 
         if (iA !== -1 && iB !== -1 && iC !== -1 && iD !== -1) {
-          // Face Frontal (normal voltada para -Y)
           indices.push(iA, iB, iC);
           indices.push(iB, iD, iC);
 
-          // Face Traseira (normal voltada para +Y)
           indices.push(backOffset + iA, backOffset + iC, backOffset + iB);
           indices.push(backOffset + iB, backOffset + iC, backOffset + iD);
         }
       }
     }
 
-    // 4. Paredes Laterais Herméticas (Perimeter Skirt)
+    // 4. Fechamento perimétrico hermético (Skirt)
     const addSkirtQuad = (frontA, frontB) => {
       const backA = backOffset + frontA;
       const backB = backOffset + frontB;
@@ -448,36 +536,32 @@ export class MeshGenerator {
         const curr = vIdx[y * W + x];
         if (curr === -1) continue;
 
-        // Borda Direita
         if (x === maxX || vIdx[y * W + x + 1] === -1) {
           if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
-            const next = vIdx[(y + 1) * W + x];
-            addSkirtQuad(curr, next);
+            addSkirtQuad(curr, vIdx[(y + 1) * W + x]);
           }
         }
-        // Borda Esquerda
         if (x === minX || vIdx[y * W + x - 1] === -1) {
           if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
-            const next = vIdx[(y + 1) * W + x];
-            addSkirtQuad(next, curr);
+            addSkirtQuad(vIdx[(y + 1) * W + x], curr);
           }
         }
-        // Borda Superior
         if (y === minY || vIdx[(y - 1) * W + x] === -1) {
           if (x < maxX && vIdx[y * W + x + 1] !== -1) {
-            const next = vIdx[y * W + x + 1];
-            addSkirtQuad(next, curr);
+            addSkirtQuad(vIdx[y * W + x + 1], curr);
           }
         }
-        // Borda Inferior (Pés)
         if (y === maxY || vIdx[(y + 1) * W + x] === -1) {
           if (x < maxX && vIdx[y * W + x + 1] !== -1) {
-            const next = vIdx[y * W + x + 1];
-            addSkirtQuad(curr, next);
+            addSkirtQuad(curr, vIdx[y * W + x + 1]);
           }
         }
       }
     }
+
+    // 5. Suavização Laplaciana 3D para dissolver qualquer aresta serrilhada em curvaturas orgânicas
+    this.applyLaplacianSmoothing(positions, indices, 4, 0.46);
+
 
     // 5. Pedestal de Apoio Integrado (Sólido para Mesa Aquecida Z = 0)
     if (addPedestal) {
