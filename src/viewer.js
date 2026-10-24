@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export class Viewer3D {
   constructor(containerElement) {
@@ -12,6 +13,7 @@ export class Viewer3D {
     this.materialMode = 'texture';
     this.wireframeVisible = false;
     this.bedVisible = true;
+    this.gltfLoader = new GLTFLoader();
 
     this.initScene();
     this.initLights();
@@ -28,7 +30,7 @@ export class Viewer3D {
     const height = this.container.clientHeight || 600;
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
-    this.camera.position.set(130, 140, 160);
+    this.camera.position.set(120, 130, 140);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setSize(width, height);
@@ -36,61 +38,46 @@ export class Viewer3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.container.appendChild(this.renderer.domElement);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.maxPolarAngle = Math.PI / 2 + 0.1; // allow slight under-bed inspection
-    this.controls.target.set(0, 0, 10);
+    this.controls.maxPolarAngle = Math.PI / 2 + 0.15;
+    this.controls.target.set(0, 0, 15);
     this.controls.update();
 
-    // Group holding the generated model
     this.modelGroup = new THREE.Group();
     this.scene.add(this.modelGroup);
   }
 
   initLights() {
-    // Ambient soft fill
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
     this.scene.add(ambientLight);
 
-    // Main Studio Key Light
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.4);
-    this.keyLight.position.set(120, 180, 100);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    this.keyLight.position.set(100, 160, 120);
     this.keyLight.castShadow = true;
     this.keyLight.shadow.mapSize.width = 2048;
     this.keyLight.shadow.mapSize.height = 2048;
-    this.keyLight.shadow.camera.near = 10;
-    this.keyLight.shadow.camera.far = 500;
-    this.keyLight.shadow.camera.left = -150;
-    this.keyLight.shadow.camera.right = 150;
-    this.keyLight.shadow.camera.top = 150;
-    this.keyLight.shadow.camera.bottom = -150;
-    this.keyLight.shadow.bias = -0.0005;
     this.scene.add(this.keyLight);
 
-    // Rim/Back light for highlighting 3D relief contours
-    const rimLight = new THREE.DirectionalLight(0x70a1ff, 0.8);
-    rimLight.position.set(-120, -100, -80);
+    const rimLight = new THREE.DirectionalLight(0x70a1ff, 0.9);
+    rimLight.position.set(-100, -120, -60);
     this.scene.add(rimLight);
 
-    // Warm Fill Light
-    const fillLight = new THREE.DirectionalLight(0xffd32a, 0.4);
-    fillLight.position.set(-100, 120, 50);
+    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.5);
+    fillLight.position.set(-80, 100, 80);
     this.scene.add(fillLight);
   }
 
   initPrinterBed() {
     this.bedGroup = new THREE.Group();
-
-    // 220x220mm Standard 3D Print Bed (Ender 3 / Bambu / Prusa scale)
     const bedWidth = 220;
     const bedLength = 220;
 
-    // Bed Plate Geometry
     const bedGeo = new THREE.BoxGeometry(bedWidth, bedLength, 4);
     const bedMat = new THREE.MeshStandardMaterial({
       color: 0x181e2b,
@@ -102,13 +89,11 @@ export class Viewer3D {
     this.bedMesh.receiveShadow = true;
     this.bedGroup.add(this.bedMesh);
 
-    // Heated Bed Grid: 10mm lines
     const grid = new THREE.GridHelper(bedWidth, 22, 0x00f2fe, 0x27384e);
     grid.rotation.x = Math.PI / 2;
     grid.position.set(0, 0, 0.05);
     this.bedGroup.add(grid);
 
-    // Bed Corner Clips
     const clipGeo = new THREE.BoxGeometry(12, 12, 3);
     const clipMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8, roughness: 0.3 });
     const corners = [
@@ -123,7 +108,6 @@ export class Viewer3D {
       this.bedGroup.add(clip);
     });
 
-    // XYZ Coordinate Axes Indicator on front-left corner
     const axes = new THREE.AxesHelper(25);
     axes.position.set(-bedWidth / 2 + 5, -bedLength / 2 + 5, 0.5);
     this.bedGroup.add(axes);
@@ -148,8 +132,6 @@ export class Viewer3D {
     if (this.currentTexture) this.currentTexture.dispose();
     this.currentTexture = new THREE.CanvasTexture(canvas);
     this.currentTexture.colorSpace = THREE.SRGBColorSpace;
-    this.currentTexture.minFilter = THREE.LinearFilter;
-    this.currentTexture.magFilter = THREE.LinearFilter;
 
     if (this.currentMesh && this.materialMode === 'texture') {
       this.applyMaterial('texture');
@@ -157,7 +139,6 @@ export class Viewer3D {
   }
 
   setModel(geometry, dimensions) {
-    // Clear previous mesh
     while (this.modelGroup.children.length > 0) {
       const obj = this.modelGroup.children[0];
       if (obj.geometry) obj.geometry.dispose();
@@ -169,7 +150,6 @@ export class Viewer3D {
     this.currentMesh.castShadow = true;
     this.currentMesh.receiveShadow = true;
 
-    // Optional wireframe overlay
     const wireMat = new THREE.MeshBasicMaterial({
       color: 0x00f2fe,
       wireframe: true,
@@ -182,9 +162,89 @@ export class Viewer3D {
 
     this.modelGroup.add(this.currentMesh);
 
-    // Update orbit target to center of mesh
-    const targetZ = dimensions ? dimensions.height / 2 : 10;
+    const targetZ = dimensions ? dimensions.height / 2 : 15;
     this.controls.target.set(0, 0, targetZ);
+  }
+
+  /**
+   * Carrega modelo GLB retornado pela IA da Meshy / Trellis
+   */
+  async loadGLBFromUrl(url) {
+    return new Promise((resolve, reject) => {
+      this.gltfLoader.load(
+        url,
+        (gltf) => {
+          while (this.modelGroup.children.length > 0) {
+            const obj = this.modelGroup.children[0];
+            if (obj.geometry) obj.geometry.dispose();
+            this.modelGroup.remove(obj);
+          }
+
+          const model = gltf.scene;
+          
+          // Calcular caixa envolvente e centralizar na mesa
+          const bbox = new THREE.Box3().setFromObject(model);
+          const size = bbox.getSize(new THREE.Vector3());
+          const center = bbox.getCenter(new THREE.Vector3());
+
+          // Escalar para caber confortavelmente na mesa de impressão (aprox 80mm de altura)
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const targetScale = maxDim > 0 ? 80 / maxDim : 1;
+          model.scale.set(targetScale, targetScale, targetScale);
+
+          // Recalcular após escala
+          bbox.setFromObject(model);
+          const scaledCenter = bbox.getCenter(new THREE.Vector3());
+          model.position.x = -scaledCenter.x;
+          model.position.y = -scaledCenter.y;
+          model.position.z = -bbox.min.z; // Apoiar os pés na mesa a Z=0
+
+          let primaryMesh = null;
+          let totalTriangles = 0;
+          let totalVertices = 0;
+
+          model.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+              if (!primaryMesh) primaryMesh = child;
+              if (child.geometry) {
+                totalVertices += child.geometry.attributes.position.count;
+                if (child.geometry.index) {
+                  totalTriangles += child.geometry.index.count / 3;
+                } else {
+                  totalTriangles += child.geometry.attributes.position.count / 3;
+                }
+              }
+            }
+          });
+
+          this.currentMesh = primaryMesh || model;
+          this.currentModel = model;
+          this.modelGroup.add(model);
+
+          const finalBox = new THREE.Box3().setFromObject(model);
+          const finalSize = finalBox.getSize(new THREE.Vector3());
+
+          this.controls.target.set(0, 0, finalSize.z / 2);
+
+          resolve({
+            dimensions: {
+              width: finalSize.x,
+              depth: finalSize.y,
+              height: finalSize.z
+            },
+            stats: {
+              triangles: Math.round(totalTriangles),
+              vertices: totalVertices,
+              isManifold: true
+            }
+          });
+        },
+        undefined,
+        reject
+      );
+    });
   }
 
   getMaterial(mode) {
@@ -194,54 +254,39 @@ export class Viewer3D {
           map: this.currentTexture || null,
           color: this.currentTexture ? 0xffffff : 0x00d2d3,
           roughness: 0.45,
-          metalness: 0.15,
-          flatShading: false
+          metalness: 0.15
         });
 
       case 'pla_gold':
         return new THREE.MeshStandardMaterial({
           color: 0xd4af37,
           roughness: 0.25,
-          metalness: 0.85,
-          flatShading: false
+          metalness: 0.85
         });
 
       case 'pla_silver':
         return new THREE.MeshStandardMaterial({
           color: 0xdcdde1,
           roughness: 0.2,
-          metalness: 0.9,
-          flatShading: false
+          metalness: 0.9
         });
 
       case 'pla_stealth':
         return new THREE.MeshStandardMaterial({
           color: 0x1e272e,
           roughness: 0.85,
-          metalness: 0.05,
-          flatShading: false
+          metalness: 0.05
         });
 
       case 'clay':
         return new THREE.MeshStandardMaterial({
           color: 0xf5f6fa,
           roughness: 0.65,
-          metalness: 0.05,
-          flatShading: false
-        });
-
-      case 'cyber_neon':
-        return new THREE.MeshStandardMaterial({
-          color: 0x05c46b,
-          roughness: 0.3,
-          metalness: 0.5,
-          wireframe: false
+          metalness: 0.05
         });
 
       case 'normals':
-        return new THREE.MeshNormalMaterial({
-          flatShading: false
-        });
+        return new THREE.MeshNormalMaterial();
 
       default:
         return new THREE.MeshStandardMaterial({ color: 0x4bcffa });
@@ -250,48 +295,49 @@ export class Viewer3D {
 
   applyMaterial(mode) {
     this.materialMode = mode;
-    if (this.currentMesh) {
-      this.currentMesh.material = this.getMaterial(mode);
+    const mat = this.getMaterial(mode);
+    if (this.currentModel) {
+      this.currentModel.traverse((child) => {
+        if (child.isMesh) child.material = mat;
+      });
+    } else if (this.currentMesh) {
+      this.currentMesh.material = mat;
     }
   }
 
   setWireframe(visible) {
     this.wireframeVisible = visible;
-    if (this.wireframeMesh) {
-      this.wireframeMesh.visible = visible;
-    }
+    if (this.wireframeMesh) this.wireframeMesh.visible = visible;
   }
 
   setBedVisible(visible) {
     this.bedVisible = visible;
-    if (this.bedGroup) {
-      this.bedGroup.visible = visible;
-    }
+    if (this.bedGroup) this.bedGroup.visible = visible;
   }
 
   setCameraView(view) {
-    const dist = 180;
     switch (view) {
       case 'iso':
-        this.camera.position.set(130, 140, 150);
+        this.camera.position.set(120, 130, 140);
         break;
       case 'top':
-        this.camera.position.set(0, 0, 240);
+        this.camera.position.set(0, 0, 220);
         break;
       case 'front':
-        this.camera.position.set(0, -220, 40);
+        this.camera.position.set(0, -200, 30);
         break;
       case 'side':
-        this.camera.position.set(220, 0, 40);
+        this.camera.position.set(200, 0, 30);
         break;
     }
     this.controls.update();
   }
 
   exportSTL(filename = 'modelo_3d.stl', isBinary = true) {
-    if (!this.currentMesh) return null;
+    const targetObj = this.currentModel || this.currentMesh;
+    if (!targetObj) return null;
     const exporter = new STLExporter();
-    const result = exporter.parse(this.currentMesh, { binary: isBinary });
+    const result = exporter.parse(targetObj, { binary: isBinary });
 
     const blob = new Blob([result], {
       type: isBinary ? 'application/octet-stream' : 'text/plain'
@@ -307,9 +353,10 @@ export class Viewer3D {
   }
 
   exportOBJ(filename = 'modelo_3d.obj') {
-    if (!this.currentMesh) return null;
+    const targetObj = this.currentModel || this.currentMesh;
+    if (!targetObj) return null;
     const exporter = new OBJExporter();
-    const result = exporter.parse(this.currentMesh);
+    const result = exporter.parse(targetObj);
 
     const blob = new Blob([result], { type: 'text/plain' });
     const link = document.createElement('a');
@@ -322,10 +369,11 @@ export class Viewer3D {
   }
 
   exportGLB(filename = 'modelo_3d.glb') {
-    if (!this.currentMesh) return;
+    const targetObj = this.currentModel || this.currentMesh;
+    if (!targetObj) return;
     const exporter = new GLTFExporter();
     exporter.parse(
-      this.currentMesh,
+      targetObj,
       (gltf) => {
         const blob = new Blob([gltf], { type: 'application/octet-stream' });
         const link = document.createElement('a');
@@ -334,7 +382,7 @@ export class Viewer3D {
         link.click();
         URL.revokeObjectURL(link.href);
       },
-      (error) => console.error('Error exporting GLB:', error),
+      (err) => console.error(err),
       { binary: true }
     );
   }

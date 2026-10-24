@@ -1,35 +1,41 @@
 import './style.css';
 import { Viewer3D } from './viewer.js';
 import { MeshGenerator } from './generator.js';
+import { CloudAIService } from './api.js';
 
 class StudioApp {
   constructor() {
     this.viewer = null;
     this.currentImage = null;
-    this.currentEngine = 'relief'; // 'relief' or 'volumetric'
-    this.currentProcessed = null;
+    this.currentEngine = 'cloud_meshy'; // 'cloud_meshy', 'volumetric', 'relief'
+    this.isMultiView = false;
+
+    this.multiImages = {
+      front: null,
+      side: null,
+      back: null
+    };
 
     this.options = {
       targetWidth: 80,
-      reliefHeight: 8,
+      reliefHeight: 20,
       baseThickness: 3,
       resolution: 140,
-      smoothing: 1,
-      shape: 'coin',
-      invertDepth: false,
-      maxThickness: 20
+      smoothing: 2,
+      shape: 'rect',
+      invertDepth: false
     };
 
     this.init();
   }
 
   init() {
-    // 1. Initialize 3D Viewport
     const container = document.getElementById('canvas-container');
     this.viewer = new Viewer3D(container);
 
-    // 2. Setup Event Listeners
-    this.bindDropzone();
+    this.bindViewModeToggle();
+    this.bindDropzones();
+    this.bindMultiSlots();
     this.bindPresets();
     this.bindEngineTabs();
     this.bindSliders();
@@ -37,9 +43,49 @@ class StudioApp {
     this.bindMaterials();
     this.bindExports();
     this.bindModals();
+    this.bindApiModal();
 
-    // 3. Load default sample
-    this.loadSampleImage('/samples/dragon_coin.jpg');
+    this.updateApiKeyBadge();
+
+    // Load default sample
+    this.loadSampleImage('./samples/robot_toy.jpg');
+  }
+
+  updateApiKeyBadge() {
+    const key = CloudAIService.getStoredMeshyKey();
+    const btnText = document.getElementById('api-btn-text');
+    if (key) {
+      btnText.textContent = 'IA Meshy Conectada ✓';
+    } else {
+      btnText.textContent = 'Conectar IA Meshy';
+    }
+  }
+
+  bindViewModeToggle() {
+    const btnSingle = document.getElementById('btn-mode-single');
+    const btnMulti = document.getElementById('btn-mode-multi');
+    const singleBox = document.getElementById('single-upload-box');
+    const multiBox = document.getElementById('multi-upload-box');
+
+    btnSingle.addEventListener('click', () => {
+      btnSingle.classList.add('active');
+      btnMulti.classList.remove('active');
+      singleBox.classList.remove('hidden');
+      multiBox.classList.add('hidden');
+      this.isMultiView = false;
+    });
+
+    btnMulti.addEventListener('click', () => {
+      btnMulti.classList.add('active');
+      btnSingle.classList.remove('active');
+      multiBox.classList.remove('hidden');
+      singleBox.classList.add('hidden');
+      this.isMultiView = true;
+
+      // Ensure cloud engine is selected for multi-view
+      const cloudTab = document.querySelector('.engine-tab[data-engine="cloud_meshy"]');
+      if (cloudTab) cloudTab.click();
+    });
   }
 
   loadSampleImage(url) {
@@ -48,7 +94,7 @@ class StudioApp {
     img.onload = () => {
       this.currentImage = img;
       this.updateImagePreview(img.src);
-      this.generateModel();
+      this.generateLocalVolumetric();
     };
     img.src = url;
   }
@@ -61,7 +107,7 @@ class StudioApp {
     prompt.classList.add('hidden');
   }
 
-  bindDropzone() {
+  bindDropzones() {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('file-input');
 
@@ -93,7 +139,7 @@ class StudioApp {
 
   handleFile(file) {
     if (!file.type.startsWith('image/')) {
-      alert('Por favor selecione um arquivo de imagem válido (PNG, JPG, WEBP).');
+      alert('Selecione uma imagem válida (PNG, JPG, WEBP).');
       return;
     }
 
@@ -102,27 +148,60 @@ class StudioApp {
       const img = new Image();
       img.onload = () => {
         this.currentImage = img;
+        this.currentImageSrc = e.target.result;
         this.updateImagePreview(e.target.result);
-        
-        // Remove active from preset thumbnails
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-        
-        this.generateModel();
+
+        // Se for no motor cloud, executa ou avisa; caso contrário, gera local
+        if (this.currentEngine === 'cloud_meshy') {
+          this.triggerCloudGeneration();
+        } else {
+          this.generateLocalVolumetric();
+        }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   }
 
+  bindMultiSlots() {
+    const setupSlot = (slotId, fileId, imgId, key) => {
+      const slot = document.getElementById(slotId);
+      const fileInput = document.getElementById(fileId);
+      const imgPrev = document.getElementById(imgId);
+      const placeholder = slot.querySelector('.slot-placeholder');
+
+      slot.addEventListener('click', () => fileInput.click());
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            imgPrev.src = ev.target.result;
+            imgPrev.classList.remove('hidden');
+            if (placeholder) placeholder.classList.add('hidden');
+            this.multiImages[key] = ev.target.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+    };
+
+    setupSlot('slot-front', 'file-front', 'img-front-prev', 'front');
+    setupSlot('slot-side', 'file-side', 'img-side-prev', 'side');
+    setupSlot('slot-back', 'file-back', 'img-back-prev', 'back');
+  }
+
   bindPresets() {
     const presets = {
-      dragon: { url: '/samples/dragon_coin.jpg', shape: 'coin', height: 8, base: 3 },
-      robot: { url: '/samples/robot_toy.jpg', shape: 'rect', height: 12, base: 2 },
-      statue: { url: '/samples/statue_bust.jpg', shape: 'circle', height: 14, base: 4 }
+      robot: { url: './samples/robot_toy.jpg', engine: 'volumetric', width: 70, height: 28 },
+      dragon: { url: './samples/dragon_coin.jpg', engine: 'relief', width: 80, height: 8 },
+      statue: { url: './samples/statue_bust.jpg', engine: 'volumetric', width: 80, height: 32 }
     };
 
     document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         const key = btn.dataset.sample;
         const config = presets[key];
         if (!config) return;
@@ -130,15 +209,16 @@ class StudioApp {
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
-        // Apply config
-        this.options.shape = config.shape;
-        document.getElementById('param-shape').value = config.shape;
+        this.options.targetWidth = config.width;
+        document.getElementById('param-width').value = config.width;
+        document.getElementById('val-width').textContent = `${config.width} mm`;
+
         this.options.reliefHeight = config.height;
         document.getElementById('param-height').value = config.height;
         document.getElementById('val-height').textContent = `${config.height} mm`;
-        this.options.baseThickness = config.base;
-        document.getElementById('param-base').value = config.base;
-        document.getElementById('val-base').textContent = `${config.base} mm`;
+
+        const targetTab = document.querySelector(`.engine-tab[data-engine="${config.engine}"]`);
+        if (targetTab) targetTab.click();
 
         this.loadSampleImage(config.url);
       });
@@ -153,17 +233,26 @@ class StudioApp {
         this.currentEngine = tab.dataset.engine;
 
         const baseGroup = document.getElementById('group-base');
-        const shapeGroup = document.getElementById('param-shape').closest('.param-group');
+        const smoothGroup = document.getElementById('group-smooth');
 
-        if (this.currentEngine === 'volumetric') {
-          baseGroup.style.display = 'none';
-          shapeGroup.style.display = 'none';
-        } else {
+        if (this.currentEngine === 'relief') {
           baseGroup.style.display = 'flex';
-          shapeGroup.style.display = 'flex';
+          smoothGroup.style.display = 'flex';
+        } else if (this.currentEngine === 'volumetric') {
+          baseGroup.style.display = 'none';
+          smoothGroup.style.display = 'flex';
+        } else {
+          // cloud_meshy
+          baseGroup.style.display = 'none';
+          smoothGroup.style.display = 'none';
         }
 
-        this.generateModel();
+        const genBtnText = document.getElementById('btn-generate-text');
+        if (this.currentEngine === 'cloud_meshy') {
+          genBtnText.textContent = 'Gerar Boneco 3D com IA Meshy';
+        } else {
+          genBtnText.textContent = 'Gerar Modelo 3D Agora';
+        }
       });
     });
   }
@@ -175,39 +264,135 @@ class StudioApp {
       slider.addEventListener('input', () => {
         const val = parseFn(slider.value);
         this.options[optKey] = val;
-        valDisplay.textContent = unit === 'res' ? `${val}x${val}` : `${val} ${unit}`;
+        valDisplay.textContent = `${val} ${unit}`;
       });
       slider.addEventListener('change', () => {
-        this.generateModel();
+        if (this.currentEngine !== 'cloud_meshy') {
+          this.generateLocalVolumetric();
+        }
       });
     };
 
     bindRange('param-width', 'val-width', 'mm', 'targetWidth');
     bindRange('param-height', 'val-height', 'mm', 'reliefHeight');
     bindRange('param-base', 'val-base', 'mm', 'baseThickness');
-    bindRange('param-res', 'val-res', 'res', 'resolution', parseInt);
     bindRange('param-smooth', 'val-smooth', 'Nível', 'smoothing', parseInt);
 
-    const shapeSelect = document.getElementById('param-shape');
-    shapeSelect.addEventListener('change', () => {
-      this.options.shape = shapeSelect.value;
-      this.generateModel();
-    });
-
-    const invertCheck = document.getElementById('param-invert');
-    invertCheck.addEventListener('change', () => {
-      this.options.invertDepth = invertCheck.checked;
-      this.generateModel();
-    });
-
-    const genBtn = document.getElementById('btn-generate');
-    genBtn.addEventListener('click', () => {
-      this.generateModel();
+    document.getElementById('btn-generate').addEventListener('click', () => {
+      if (this.currentEngine === 'cloud_meshy') {
+        this.triggerCloudGeneration();
+      } else {
+        this.generateLocalVolumetric();
+      }
     });
   }
 
+  async triggerCloudGeneration() {
+    const apiKey = CloudAIService.getStoredMeshyKey();
+    if (!apiKey) {
+      // Abre modal para o usuário inserir chave gratuita
+      document.getElementById('modal-api').classList.remove('hidden');
+      return;
+    }
+
+    const progressWrap = document.getElementById('cloud-progress-wrap');
+    const progressFill = document.getElementById('progress-bar-fill');
+    const progressMsg = document.getElementById('progress-status-msg');
+    const progressPercent = document.getElementById('progress-percent-val');
+    const statusText = document.getElementById('gen-status');
+
+    progressWrap.classList.remove('hidden');
+
+    try {
+      const resultUrls = await CloudAIService.generateWithMeshy(
+        apiKey,
+        {
+          imageUrl: this.currentImageSrc || this.currentImage?.src,
+          frontUrl: this.multiImages.front,
+          sideUrl: this.multiImages.side,
+          backUrl: this.multiImages.back,
+          isMultiView: this.isMultiView,
+          aiModel: 'meshy-4'
+        },
+        (progress) => {
+          progressMsg.textContent = progress.message;
+          progressPercent.textContent = `${progress.percent}%`;
+          progressFill.style.width = `${progress.percent}%`;
+        }
+      );
+
+      // Carregar GLB no Three.js
+      if (resultUrls && resultUrls.glb) {
+        progressMsg.textContent = 'Renderizando modelo 3D na mesa...';
+        const modelInfo = await this.viewer.loadGLBFromUrl(resultUrls.glb);
+        this.updateMetricsFromInfo(modelInfo);
+        statusText.textContent = `Boneco 3D gerado com sucesso! (${modelInfo.stats.triangles.toLocaleString()} polígonos)`;
+        statusText.style.color = '#34d399';
+      }
+    } catch (err) {
+      alert(`Erro na geração: ${err.message}`);
+      statusText.textContent = `Erro: ${err.message}`;
+      statusText.style.color = '#ef4444';
+    } finally {
+      setTimeout(() => {
+        progressWrap.classList.add('hidden');
+      }, 2000);
+    }
+  }
+
+  generateLocalVolumetric() {
+    if (!this.currentImage) return;
+
+    const statusEl = document.getElementById('gen-status');
+    statusEl.textContent = 'Processando geometria 3D...';
+
+    const processed = MeshGenerator.getImageData(this.currentImage, 140);
+    this.viewer.setTextureFromCanvas(processed.canvas);
+
+    let result;
+    if (this.currentEngine === 'relief') {
+      result = MeshGenerator.createWatertightRelief(processed, {
+        targetWidth: this.options.targetWidth,
+        reliefHeight: this.options.reliefHeight,
+        baseThickness: this.options.baseThickness,
+        smoothing: this.options.smoothing
+      });
+    } else {
+      // Escultura 360° com isolamento de silhueta (sem fundo quadrado!)
+      result = MeshGenerator.createVolumetric360(processed, {
+        targetWidth: this.options.targetWidth,
+        maxThickness: this.options.reliefHeight,
+        smoothing: this.options.smoothing
+      });
+    }
+
+    this.viewer.setModel(result.geometry, result.dimensions);
+    const metrics = MeshGenerator.estimatePrintMetrics(result.geometry, 15);
+
+    document.getElementById('metric-x').textContent = `${result.dimensions.width.toFixed(1)} mm`;
+    document.getElementById('metric-y').textContent = `${result.dimensions.depth.toFixed(1)} mm`;
+    document.getElementById('metric-z').textContent = `${result.dimensions.height.toFixed(1)} mm`;
+    document.getElementById('metric-triangles').textContent = `${result.stats.triangles.toLocaleString()} tris`;
+    document.getElementById('metric-vol').textContent = `${metrics.volumeCm3} cm³`;
+    document.getElementById('metric-weight').textContent = `~${metrics.weightGrams} g`;
+    document.getElementById('metric-time').textContent = `~${metrics.printTimeString}`;
+
+    statusEl.textContent = `Modelo gerado com sucesso (${result.stats.triangles.toLocaleString()} tris)`;
+  }
+
+  updateMetricsFromInfo(info) {
+    document.getElementById('metric-x').textContent = `${info.dimensions.width.toFixed(1)} mm`;
+    document.getElementById('metric-y').textContent = `${info.dimensions.depth.toFixed(1)} mm`;
+    document.getElementById('metric-z').textContent = `${info.dimensions.height.toFixed(1)} mm`;
+    document.getElementById('metric-triangles').textContent = `${info.stats.triangles.toLocaleString()} tris`;
+
+    const vol = (info.dimensions.width * info.dimensions.depth * info.dimensions.height * 0.45) / 1000;
+    const weight = vol * 1.24 * 0.35;
+    document.getElementById('metric-vol').textContent = `${vol.toFixed(1)} cm³`;
+    document.getElementById('metric-weight').textContent = `~${weight.toFixed(1)} g`;
+  }
+
   bindToolbar() {
-    // View camera buttons
     document.querySelectorAll('.top-toolbar .tool-btn[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.top-toolbar .tool-btn[data-view]').forEach(b => b.classList.remove('active'));
@@ -216,14 +401,12 @@ class StudioApp {
       });
     });
 
-    // Bed toggle
     const bedBtn = document.getElementById('btn-toggle-bed');
     bedBtn.addEventListener('click', () => {
       const active = bedBtn.classList.toggle('active');
       this.viewer.setBedVisible(active);
     });
 
-    // Wireframe toggle
     const wireBtn = document.getElementById('btn-toggle-wireframe');
     wireBtn.addEventListener('click', () => {
       const active = wireBtn.classList.toggle('active');
@@ -242,108 +425,54 @@ class StudioApp {
   }
 
   bindExports() {
-    const getBaseName = () => {
-      return `modelo_3d_${Date.now()}`;
-    };
+    const getBaseName = () => `boneco_3d_${Date.now()}`;
 
     document.getElementById('btn-export-stl-bin').addEventListener('click', () => {
       const res = this.viewer.exportSTL(`${getBaseName()}.stl`, true);
-      if (res) this.showStatusToast(`Arquivo STL (Binário) baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
-    });
-
-    document.getElementById('btn-export-stl-ascii').addEventListener('click', () => {
-      const res = this.viewer.exportSTL(`${getBaseName()}_ascii.stl`, false);
-      if (res) this.showStatusToast(`Arquivo STL (ASCII) baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
+      if (res) alert(`Arquivo STL baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB) pronto para o Slicer!`);
     });
 
     document.getElementById('btn-export-obj').addEventListener('click', () => {
-      const res = this.viewer.exportOBJ(`${getBaseName()}.obj`);
-      if (res) this.showStatusToast(`Arquivo OBJ baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
+      this.viewer.exportOBJ(`${getBaseName()}.obj`);
     });
 
     document.getElementById('btn-export-glb').addEventListener('click', () => {
       this.viewer.exportGLB(`${getBaseName()}.glb`);
-      this.showStatusToast('Arquivo GLB (com textura) baixado!');
     });
   }
 
   bindModals() {
     const guideModal = document.getElementById('modal-guide');
-    const backendModal = document.getElementById('modal-backend');
-
     document.getElementById('btn-open-guide').addEventListener('click', () => guideModal.classList.remove('hidden'));
     document.getElementById('btn-close-guide').addEventListener('click', () => guideModal.classList.add('hidden'));
     document.getElementById('btn-ok-guide').addEventListener('click', () => guideModal.classList.add('hidden'));
+  }
 
-    document.getElementById('btn-open-backend').addEventListener('click', () => backendModal.classList.remove('hidden'));
-    document.getElementById('btn-close-backend').addEventListener('click', () => backendModal.classList.add('hidden'));
-    document.getElementById('btn-ok-backend').addEventListener('click', () => backendModal.classList.add('hidden'));
+  bindApiModal() {
+    const apiModal = document.getElementById('modal-api');
+    const keyInput = document.getElementById('meshy-key-input');
+    const saveBtn = document.getElementById('btn-save-api');
 
-    [guideModal, backendModal].forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.classList.add('hidden');
-      });
+    document.getElementById('btn-open-api-config').addEventListener('click', () => {
+      keyInput.value = CloudAIService.getStoredMeshyKey();
+      apiModal.classList.remove('hidden');
     });
-  }
 
-  showStatusToast(msg) {
-    const status = document.getElementById('gen-status');
-    status.textContent = msg;
-    status.style.color = '#34d399';
-    setTimeout(() => {
-      status.textContent = 'Modelo pronto para visualização';
-      status.style.color = '';
-    }, 4000);
-  }
+    document.getElementById('btn-close-api').addEventListener('click', () => {
+      apiModal.classList.add('hidden');
+    });
 
-  generateModel() {
-    if (!this.currentImage) return;
-
-    const statusEl = document.getElementById('gen-status');
-    statusEl.textContent = 'Processando malha 3D e normais...';
-
-    // Extract image data
-    this.currentProcessed = MeshGenerator.getImageData(this.currentImage, this.options.resolution);
-    this.viewer.setTextureFromCanvas(this.currentProcessed.canvas);
-
-    let result;
-    if (this.currentEngine === 'relief') {
-      result = MeshGenerator.createWatertightRelief(this.currentProcessed, {
-        targetWidth: this.options.targetWidth,
-        reliefHeight: this.options.reliefHeight,
-        baseThickness: this.options.baseThickness,
-        invertDepth: this.options.invertDepth,
-        smoothing: this.options.smoothing,
-        shape: this.options.shape
-      });
-    } else {
-      result = MeshGenerator.createVolumetric360(this.currentProcessed, {
-        targetWidth: this.options.targetWidth,
-        maxThickness: this.options.reliefHeight * 2,
-        smoothing: this.options.smoothing
-      });
-    }
-
-    // Set model in 3D viewer
-    this.viewer.setModel(result.geometry, result.dimensions);
-
-    // Calculate 3D print metrics
-    const metrics = MeshGenerator.estimatePrintMetrics(result.geometry, 15);
-
-    // Update UI numbers
-    document.getElementById('metric-x').textContent = `${result.dimensions.width.toFixed(1)} mm`;
-    document.getElementById('metric-y').textContent = `${result.dimensions.depth.toFixed(1)} mm`;
-    document.getElementById('metric-z').textContent = `${result.dimensions.height.toFixed(1)} mm`;
-    document.getElementById('metric-triangles').textContent = `${result.stats.triangles.toLocaleString()} tris`;
-    document.getElementById('metric-vol').textContent = `${metrics.volumeCm3} cm³`;
-    document.getElementById('metric-weight').textContent = `~${metrics.weightGrams} g`;
-    document.getElementById('metric-time').textContent = `~${metrics.printTimeString}`;
-
-    statusEl.textContent = `Modelo gerado com sucesso (${result.stats.triangles.toLocaleString()} triângulos)`;
+    saveBtn.addEventListener('click', () => {
+      CloudAIService.setStoredMeshyKey(keyInput.value);
+      this.updateApiKeyBadge();
+      apiModal.classList.add('hidden');
+      if (keyInput.value.trim()) {
+        alert('Chave salva com sucesso no navegador! Agora ao clicar em Gerar, o modelo será gerado na nuvem.');
+      }
+    });
   }
 }
 
-// Start application
 window.addEventListener('DOMContentLoaded', () => {
   new StudioApp();
 });

@@ -1,20 +1,18 @@
 import * as THREE from 'three';
 
 /**
- * OpenMeshy 3D Generator Engine
- * Transforms 2D image data into solid, watertight 3D meshes (Manifold) ready for 3D printing.
+ * OpenMeshy / Forge3D Engine de Malhas e Geometrias 3D
  */
 
 export class MeshGenerator {
   /**
-   * Process an image element and extract luminance and color data
+   * Processa a imagem extraindo luminância, canais de cor e máscara de remoção de fundo
    */
   static getImageData(image, targetResolution = 150) {
     const canvas = document.createElement('canvas');
     let width = targetResolution;
     let height = Math.round(targetResolution * (image.naturalHeight / image.naturalWidth));
     
-    // Clamp aspect ratio to reasonable limits
     if (height > targetResolution * 1.5) {
       height = Math.round(targetResolution * 1.5);
     } else if (height < targetResolution * 0.5) {
@@ -29,21 +27,41 @@ export class MeshGenerator {
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
 
-    // Create normalized depth grid [0..1] and color texture
     const depthMap = new Float32Array(width * height);
     const alphaMap = new Float32Array(width * height);
+    const mask = new Uint8Array(width * height);
+
+    // Amostrar cantos para detectar cor do fundo (geralmente branco, cinza claro ou transparente)
+    let bgR = 0, bgG = 0, bgB = 0;
+    const cornerIndices = [0, (width - 1) * 4, (height - 1) * width * 4, (height * width - 1) * 4];
+    cornerIndices.forEach(idx => {
+      bgR += data[idx] / 4;
+      bgG += data[idx + 1] / 4;
+      bgB += data[idx + 2] / 4;
+    });
+
+    const isLightBg = (bgR + bgG + bgB) / 3 > 200;
 
     for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255;
-      const g = data[i + 1] / 255;
-      const b = data[i + 2] / 255;
-      const a = data[i + 3] / 255;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
 
-      // Perceptual luminance formula
-      const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
       const idx = i / 4;
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       depthMap[idx] = luminance;
-      alphaMap[idx] = a;
+      alphaMap[idx] = a / 255;
+
+      // Distância de cor euclidiana ao fundo
+      const distToBg = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
+
+      // É primeiro plano (objeto/boneco) se for diferente do fundo e tiver opacidade
+      if (a < 50 || distToBg < 35 || (isLightBg && r > 240 && g > 240 && b > 240)) {
+        mask[idx] = 0; // Fundo
+      } else {
+        mask[idx] = 1; // Objeto / Boneco 3D
+      }
     }
 
     return {
@@ -51,14 +69,12 @@ export class MeshGenerator {
       height,
       depthMap,
       alphaMap,
+      mask,
       canvas,
       aspectRatio: width / height
     };
   }
 
-  /**
-   * Apply bilateral-style smoothing to depth map to eliminate noise while preserving sharp edges
-   */
   static smoothDepthMap(depthMap, width, height, iterations = 1) {
     let current = new Float32Array(depthMap);
     let next = new Float32Array(depthMap.length);
@@ -80,7 +96,6 @@ export class MeshGenerator {
               const nIdx = ny * width + nx;
               const val = current[nIdx];
 
-              // Spatial weight + range weight (edge preservation)
               const spatialDist = dx * dx + dy * dy;
               const spatialWeight = Math.exp(-spatialDist / 2);
               const rangeDiff = val - centerVal;
@@ -102,25 +117,21 @@ export class MeshGenerator {
   }
 
   /**
-   * Generates a 100% Watertight Solid Relief Mesh (Print-Ready STL)
-   * Has top displaced surface, solid vertical skirts, and a sealed bottom plate.
+   * Relevo Estanque (Manifold) com base fechada a Z=0 para impressão 3D imediata
    */
   static createWatertightRelief(processedImage, options = {}) {
     const {
-      targetWidth = 100, // mm
-      reliefHeight = 10, // mm
-      baseThickness = 3, // mm
+      targetWidth = 80,
+      reliefHeight = 8,
+      baseThickness = 3,
       invertDepth = false,
       smoothing = 1,
-      shape = 'rect', // 'rect', 'circle', 'coin'
-      autoRemoveBg = false,
-      bgThreshold = 0.95
+      shape = 'rect'
     } = options;
 
-    const { width: Nx, height: Ny, depthMap: rawDepth } = processedImage;
+    const { width: Nx, height: Ny, depthMap: rawDepth, mask } = processedImage;
     const targetHeight = targetWidth / (Nx / Ny);
 
-    // Apply smoothing
     let depth = rawDepth;
     if (smoothing > 0) {
       depth = this.smoothDepthMap(rawDepth, Nx, Ny, smoothing);
@@ -130,35 +141,23 @@ export class MeshGenerator {
     const uvs = [];
     const indices = [];
 
-    // Helper: calculate vertex position for top surface
     const getTopZ = (x, y) => {
       const idx = y * Nx + x;
       let val = depth[idx];
       if (invertDepth) val = 1.0 - val;
 
-      if (autoRemoveBg && val > bgThreshold) {
-        val = 0;
-      }
-
-      // Shape masking
       if (shape === 'circle' || shape === 'coin') {
         const cx = (x / (Nx - 1) - 0.5) * 2;
         const cy = (y / (Ny - 1) - 0.5) * 2;
         const dist = Math.sqrt(cx * cx + cy * cy);
-        if (dist > 1.0) {
-          return baseThickness;
-        }
-        if (shape === 'coin' && dist > 0.9) {
-          // Add raised rim for coin border
-          val = Math.max(val, 0.7);
-        }
+        if (dist > 1.0) return baseThickness;
+        if (shape === 'coin' && dist > 0.9) val = Math.max(val, 0.7);
       }
 
       return baseThickness + val * reliefHeight;
     };
 
-    // 1. TOP SURFACE VERTICES
-    // Grid has Nx * Ny vertices
+    // 1. Topo
     for (let y = 0; y < Ny; y++) {
       for (let x = 0; x < Nx; x++) {
         const posX = (x / (Nx - 1) - 0.5) * targetWidth;
@@ -170,7 +169,6 @@ export class MeshGenerator {
       }
     }
 
-    // Top surface indices (counter-clockwise)
     for (let y = 0; y < Ny - 1; y++) {
       for (let x = 0; x < Nx - 1; x++) {
         const i0 = y * Nx + x;
@@ -183,20 +181,17 @@ export class MeshGenerator {
       }
     }
 
-    // 2. BOTTOM SURFACE VERTICES (at z = 0)
+    // 2. Base a Z=0
     const bottomOffset = positions.length / 3;
     for (let y = 0; y < Ny; y++) {
       for (let x = 0; x < Nx; x++) {
         const posX = (x / (Nx - 1) - 0.5) * targetWidth;
         const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const posZ = 0; // Flat base on print bed
-
-        positions.push(posX, posY, posZ);
+        positions.push(posX, posY, 0);
         uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
       }
     }
 
-    // Bottom surface indices (clockwise so normal points DOWN to -Z)
     for (let y = 0; y < Ny - 1; y++) {
       for (let x = 0; x < Nx - 1; x++) {
         const b0 = bottomOffset + (y * Nx + x);
@@ -209,46 +204,24 @@ export class MeshGenerator {
       }
     }
 
-    // 3. SIDE WALLS (SKIRTS) to make it 100% Watertight Manifold
+    // 3. Paredes de vedação
     const addSideQuad = (topA, topB, botA, botB) => {
       indices.push(topA, botA, topB);
       indices.push(topB, botA, botB);
     };
 
-    // North Edge (y = 0, along x)
     for (let x = 0; x < Nx - 1; x++) {
-      const tA = x;
-      const tB = x + 1;
-      const bA = bottomOffset + x;
-      const bB = bottomOffset + x + 1;
-      addSideQuad(tA, tB, bA, bB);
+      addSideQuad(x, x + 1, bottomOffset + x, bottomOffset + x + 1);
+      const sT = (Ny - 1) * Nx + x;
+      addSideQuad(sT + 1, sT, bottomOffset + sT + 1, bottomOffset + sT);
     }
-
-    // South Edge (y = Ny - 1, along x)
-    for (let x = 0; x < Nx - 1; x++) {
-      const tA = (Ny - 1) * Nx + x;
-      const tB = (Ny - 1) * Nx + x + 1;
-      const bA = bottomOffset + ((Ny - 1) * Nx + x);
-      const bB = bottomOffset + ((Ny - 1) * Nx + x + 1);
-      addSideQuad(tB, tA, bB, bA);
-    }
-
-    // West Edge (x = 0, along y)
     for (let y = 0; y < Ny - 1; y++) {
-      const tA = y * Nx;
-      const tB = (y + 1) * Nx;
-      const bA = bottomOffset + (y * Nx);
-      const bB = bottomOffset + ((y + 1) * Nx);
-      addSideQuad(tB, tA, bB, bA);
-    }
-
-    // East Edge (x = Nx - 1, along y)
-    for (let y = 0; y < Ny - 1; y++) {
-      const tA = y * Nx + (Nx - 1);
-      const tB = (y + 1) * Nx + (Nx - 1);
-      const bA = bottomOffset + (y * Nx + (Nx - 1));
-      const bB = bottomOffset + ((y + 1) * Nx + (Nx - 1));
-      addSideQuad(tA, tB, bA, bB);
+      const wT = y * Nx;
+      const wNext = (y + 1) * Nx;
+      addSideQuad(wNext, wT, bottomOffset + wNext, bottomOffset + wT);
+      const eT = y * Nx + (Nx - 1);
+      const eNext = (y + 1) * Nx + (Nx - 1);
+      addSideQuad(eT, eNext, bottomOffset + eT, bottomOffset + eNext);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -259,32 +232,23 @@ export class MeshGenerator {
 
     return {
       geometry,
-      dimensions: {
-        width: targetWidth,
-        depth: targetHeight,
-        height: baseThickness + reliefHeight
-      },
-      stats: {
-        vertices: positions.length / 3,
-        triangles: indices.length / 3,
-        isManifold: true
-      }
+      dimensions: { width: targetWidth, depth: targetHeight, height: baseThickness + reliefHeight },
+      stats: { vertices: positions.length / 3, triangles: indices.length / 3, isManifold: true }
     };
   }
 
   /**
-   * Generates a 360-degree Volumetric Symmetrical Mesh
-   * Inflates the silhouette of the 2D image into a full 360° solid front-and-back figurine/object.
+   * Escultura 360° Volumétrica Orgânica com Isolamento de Fundo
+   * Infla apenas o boneco/objeto em 360° (frente e verso arredondados)
    */
   static createVolumetric360(processedImage, options = {}) {
     const {
-      targetWidth = 80, // mm
-      maxThickness = 25, // mm
-      smoothing = 2,
-      silhouetteThreshold = 0.92
+      targetWidth = 70,
+      maxThickness = 28,
+      smoothing = 2
     } = options;
 
-    const { width: Nx, height: Ny, depthMap: rawDepth } = processedImage;
+    const { width: Nx, height: Ny, depthMap: rawDepth, mask } = processedImage;
     const targetHeight = targetWidth / (Nx / Ny);
 
     let depth = rawDepth;
@@ -292,14 +256,9 @@ export class MeshGenerator {
       depth = this.smoothDepthMap(rawDepth, Nx, Ny, smoothing);
     }
 
-    // Compute distance transform / inflation field
-    const mask = new Uint8Array(Nx * Ny);
-    for (let i = 0; i < depth.length; i++) {
-      mask[i] = depth[i] < silhouetteThreshold ? 1 : 0;
-    }
-
+    // Campo de distância euclidiana da silhueta do personagem
     const distField = new Float32Array(Nx * Ny);
-    const maxRadius = Math.min(Nx, Ny) / 3;
+    const maxRadius = Math.min(Nx, Ny) / 4;
 
     for (let y = 0; y < Ny; y++) {
       for (let x = 0; x < Nx; x++) {
@@ -307,13 +266,10 @@ export class MeshGenerator {
         if (mask[idx] === 0) continue;
 
         let minDist = maxRadius;
-        const searchRange = Math.min(12, Math.floor(maxRadius));
+        const searchRange = Math.min(14, Math.floor(maxRadius));
         for (let dy = -searchRange; dy <= searchRange; dy++) {
           const ny = y + dy;
-          if (ny < 0 || ny >= Ny) {
-            minDist = Math.min(minDist, Math.abs(dy));
-            continue;
-          }
+          if (ny < 0 || ny >= Ny) continue;
           for (let dx = -searchRange; dx <= searchRange; dx++) {
             const nx = x + dx;
             if (nx < 0 || nx >= Nx || mask[ny * Nx + nx] === 0) {
@@ -330,28 +286,29 @@ export class MeshGenerator {
     const uvs = [];
     const indices = [];
 
+    // Calcula espessura arredondada (frente e verso)
     const getThickness = (x, y) => {
       const idx = y * Nx + x;
       if (mask[idx] === 0) return 0;
       const df = distField[idx];
-      const localDetail = (1.0 - depth[idx]) * 0.4;
+      const localDetail = (1.0 - depth[idx]) * 0.3;
+      // Curva esférica suave
       const dome = Math.sin(Math.min(1.0, df) * (Math.PI / 2));
-      return (dome * 0.7 + localDetail) * (maxThickness / 2);
+      return Math.max(0.1, (dome * 0.8 + localDetail) * (maxThickness / 2));
     };
 
-    // 1. FRONT MESH
+    // 1. Frente (+Z)
     for (let y = 0; y < Ny; y++) {
       for (let x = 0; x < Nx; x++) {
         const posX = (x / (Nx - 1) - 0.5) * targetWidth;
         const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const posZ = getThickness(x, y);
+        const zThickness = getThickness(x, y);
 
-        positions.push(posX, posY, posZ);
+        positions.push(posX, posY, zThickness);
         uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
       }
     }
 
-    // Front indices
     for (let y = 0; y < Ny - 1; y++) {
       for (let x = 0; x < Nx - 1; x++) {
         const i0 = y * Nx + x;
@@ -359,25 +316,27 @@ export class MeshGenerator {
         const i2 = (y + 1) * Nx + x;
         const i3 = (y + 1) * Nx + (x + 1);
 
-        indices.push(i0, i1, i2);
-        indices.push(i1, i3, i2);
+        // Apenas triangula onde houver primeiro plano
+        if (mask[i0] || mask[i1] || mask[i2] || mask[i3]) {
+          indices.push(i0, i1, i2);
+          indices.push(i1, i3, i2);
+        }
       }
     }
 
-    // 2. BACK MESH (-Z)
+    // 2. Verso (-Z) para gerar o corpo 360° completo
     const backOffset = positions.length / 3;
     for (let y = 0; y < Ny; y++) {
       for (let x = 0; x < Nx; x++) {
         const posX = (x / (Nx - 1) - 0.5) * targetWidth;
         const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const posZ = -getThickness(x, y); // Mirrored
+        const zThickness = getThickness(x, y);
 
-        positions.push(posX, posY, posZ);
+        positions.push(posX, posY, -zThickness);
         uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
       }
     }
 
-    // Back indices
     for (let y = 0; y < Ny - 1; y++) {
       for (let x = 0; x < Nx - 1; x++) {
         const b0 = backOffset + (y * Nx + x);
@@ -385,29 +344,11 @@ export class MeshGenerator {
         const b2 = backOffset + ((y + 1) * Nx + x);
         const b3 = backOffset + ((y + 1) * Nx + (x + 1));
 
-        indices.push(b0, b2, b1);
-        indices.push(b1, b2, b3);
+        if (mask[y * Nx + x] || mask[y * Nx + (x + 1)]) {
+          indices.push(b0, b2, b1);
+          indices.push(b1, b2, b3);
+        }
       }
-    }
-
-    // 3. Connect perimeter borders
-    const addSideQuad = (topA, topB, botA, botB) => {
-      indices.push(topA, botA, topB);
-      indices.push(topB, botA, botB);
-    };
-
-    for (let x = 0; x < Nx - 1; x++) {
-      addSideQuad(x, x + 1, backOffset + x, backOffset + x + 1);
-      const sT = (Ny - 1) * Nx + x;
-      addSideQuad(sT + 1, sT, backOffset + sT + 1, backOffset + sT);
-    }
-    for (let y = 0; y < Ny - 1; y++) {
-      const wT = y * Nx;
-      const wNext = (y + 1) * Nx;
-      addSideQuad(wNext, wT, backOffset + wNext, backOffset + wT);
-      const eT = y * Nx + (Nx - 1);
-      const eNext = (y + 1) * Nx + (Nx - 1);
-      addSideQuad(eT, eNext, backOffset + eT, backOffset + eNext);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -418,22 +359,11 @@ export class MeshGenerator {
 
     return {
       geometry,
-      dimensions: {
-        width: targetWidth,
-        depth: targetHeight,
-        height: maxThickness
-      },
-      stats: {
-        vertices: positions.length / 3,
-        triangles: indices.length / 3,
-        isManifold: true
-      }
+      dimensions: { width: targetWidth, depth: targetHeight, height: maxThickness },
+      stats: { vertices: positions.length / 3, triangles: indices.length / 3, isManifold: true }
     };
   }
 
-  /**
-   * Calculates volume in cm³ and estimated PLA filament weight in grams
-   */
   static estimatePrintMetrics(geometry, infillPercent = 15) {
     if (!geometry.attributes.position) return { volumeCm3: 0, weightGrams: 0, printTimeHours: 0 };
 
