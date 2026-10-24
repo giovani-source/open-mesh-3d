@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forge3D AI - Estúdio Imagem ➔ 3D & STL (100% Grátis)</title>
+    <title>Forge3D - Estúdio de Escultura 3D Volumétrica & Conversão para STL</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-DsSzFeA3.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CmEzYj5P.css">
+    <script type="module" crossorigin src="./assets/index-CrXZXfxj.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CQmdj6ak.css">
   </head>
   <body>
     <div id="app" class="app-layout">
@@ -25,18 +25,18 @@
           </div>
           <div>
             <div class="brand-title-wrap">
-              <h1 class="brand-title">Forge3D AI</h1>
-              <span class="badge-free">100% NA NUVEM</span>
+              <h1 class="brand-title">Forge3D</h1>
+              <span class="badge-free">100% NATIVO • GRÁTIS</span>
             </div>
-            <p class="brand-subtitle">Estúdio de Geração 3D Volumétrica & Conversão para STL (Sem Custo)</p>
+            <p class="brand-subtitle">Transforme qualquer imagem em Escultura 3D Volumétrica em pé na mesa (.STL)</p>
           </div>
         </div>
 
         <div class="header-actions">
-          <button id="btn-open-api-config" class="btn-ghost btn-api-highlight">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
-            <span id="api-btn-text">Conectar IA Meshy / Trellis</span>
-          </button>
+          <div class="header-badge-status">
+            <span class="status-dot-active"></span>
+            <span>Motor Volumétrico Ativo</span>
+          </div>
           <button id="btn-open-guide" class="btn-ghost">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             Como Funciona
@@ -48,14 +48,12 @@
       <main class="studio-container">
         <!-- LEFT PANEL: IMAGE & GENERATION SETTINGS -->
         <aside class="panel left-panel">
-          <!-- SELECTION: SINGLE OR MULTI-VIEW -->
+          <!-- 1. IMAGE UPLOAD & SAMPLES -->
           <div class="panel-section">
-            <div class="view-mode-toggle">
-              <button class="view-toggle-btn active" id="btn-mode-single">Foto Única</button>
-              <button class="view-toggle-btn" id="btn-mode-multi">Multi-View (3 Ângulos)</button>
-            </div>
+            <h2 class="section-title">
+              <span class="step-num">1</span> Sua Imagem de Entrada
+            </h2>
 
-            <!-- SINGLE IMAGE DROPZONE -->
             <div id="single-upload-box">
               <div id="dropzone" class="upload-dropzone">
                 <input type="file" id="file-input" accept="image/*" class="file-hidden" />
@@ -65,48 +63,24 @@
                     <polyline points="17 8 12 3 7 8"></polyline>
                     <line x1="12" y1="3" x2="12" y2="15"></line>
                   </svg>
-                  <p class="dropzone-text">Arraste a foto ou <strong>clique para escolher</strong></p>
-                  <span class="dropzone-sub">PNG, JPG com fundo claro ou transparente</span>
+                  <p class="dropzone-text">Arraste sua imagem ou <strong>clique para escolher</strong></p>
+                  <span class="dropzone-sub">Personagens, heróis, fotos, mascotes ou desenhos</span>
                 </div>
-                <img id="image-preview" class="image-preview hidden" alt="Prévia" />
-              </div>
-            </div>
-
-            <!-- MULTI-VIEW 3 ANGLES DROPZONES -->
-            <div id="multi-upload-box" class="multi-upload-grid hidden">
-              <div class="multi-slot" id="slot-front">
-                <input type="file" id="file-front" accept="image/*" class="file-hidden" />
-                <span class="slot-tag">1. Vista Frontal</span>
-                <div class="slot-preview-box">
-                  <span class="slot-placeholder">+ Frente</span>
-                  <img id="img-front-prev" class="slot-img hidden" />
-                </div>
-              </div>
-              <div class="multi-slot" id="slot-side">
-                <input type="file" id="file-side" accept="image/*" class="file-hidden" />
-                <span class="slot-tag">2. Vista Lateral</span>
-                <div class="slot-preview-box">
-                  <span class="slot-placeholder">+ Lado</span>
-                  <img id="img-side-prev" class="slot-img hidden" />
-                </div>
-              </div>
-              <div class="multi-slot" id="slot-back">
-                <input type="file" id="file-back" accept="image/*" class="file-hidden" />
-                <span class="slot-tag">3. Vista Traseira</span>
-                <div class="slot-preview-box">
-                  <span class="slot-placeholder">+ Traseira</span>
-                  <img id="img-back-prev" class="slot-img hidden" />
-                </div>
+                <img id="image-preview" class="image-preview hidden" alt="Prévia da Imagem" />
               </div>
             </div>
 
             <!-- PRESET SAMPLES -->
             <div class="presets-row">
-              <span class="presets-label">Exemplos Prontos:</span>
+              <span class="presets-label">Ou teste um exemplo rápido:</span>
               <div class="preset-thumbnails">
-                <button class="preset-btn active" data-sample="robot" title="Mascote Robô 3D">
+                <button class="preset-btn active" data-sample="superman" title="Superman (Herói)">
+                  <img src="./samples/superman.png" alt="Superman" />
+                  <span>Superman</span>
+                </button>
+                <button class="preset-btn" data-sample="robot" title="Mascote Robô 3D">
                   <img src="./samples/robot_toy.jpg" alt="Robô" />
-                  <span>Boneco</span>
+                  <span>Robô</span>
                 </button>
                 <button class="preset-btn" data-sample="dragon" title="Moeda Dragão">
                   <img src="./samples/dragon_coin.jpg" alt="Moeda" />
@@ -120,92 +94,78 @@
             </div>
           </div>
 
-          <!-- GENERATION ENGINE -->
+          <!-- 2. CREATION ENGINE MODE -->
           <div class="panel-section">
             <h2 class="section-title">
-              <span class="step-num">2</span> Motor de Inteligência Artificial
+              <span class="step-num">2</span> Modo de Criação 3D
             </h2>
             <div class="engine-tabs">
-              <button class="engine-tab active" data-engine="cloud_meshy">
+              <button class="engine-tab active" data-engine="volumetric">
                 <div class="tab-badge-row">
-                  <span class="tab-title">IA Neural Meshy 7.1 Flagship</span>
+                  <span class="tab-title">Escultura 3D Anatômica (Personagens)</span>
                   <span class="badge-star">RECOMENDADO</span>
                 </div>
-                <div class="tab-desc">Gera o boneco 360° idêntico ao Meshy.ai via nuvem (sem gastar RAM)</div>
-              </button>
-
-              <button class="engine-tab" data-engine="volumetric">
-                <div class="tab-title">Escultura 360° Orgânica (Navegador)</div>
-                <div class="tab-desc">Remove o fundo e infla o personagem em volume 360° instantâneo</div>
+                <div class="tab-desc">Infla o personagem em 360° em pé na mesa, com membros separados e curvas anatômicas</div>
               </button>
 
               <button class="engine-tab" data-engine="relief">
-                <div class="tab-title">Relevo / Medalha Estanque (STL)</div>
-                <div class="tab-desc">Para moedas, litofanias, placas sólidas e chaveiros</div>
+                <div class="tab-title">Medalha / Relevo Monolítico (STL)</div>
+                <div class="tab-desc">Para moedas, medalhas, placas sólidas, litofanias e chaveiros</div>
               </button>
             </div>
           </div>
 
-          <!-- GEOMETRY PARAMETERS -->
+          <!-- 3. GEOMETRY & PRINT PARAMETERS -->
           <div class="panel-section" id="params-section">
             <h2 class="section-title">
               <span class="step-num">3</span> Parâmetros da Peça (mm)
             </h2>
 
-            <div class="param-group">
-              <div class="param-header">
-                <label for="param-width">Escala / Largura da Peça</label>
-                <span id="val-width" class="param-val">80 mm</span>
-              </div>
-              <input type="range" id="param-width" min="40" max="200" step="5" value="80" class="slider" />
-            </div>
-
             <div class="param-group" id="group-height">
               <div class="param-header">
-                <label for="param-height">Espessura / Profundidade Z</label>
-                <span id="val-height" class="param-val">20 mm</span>
+                <label for="param-height">Altura da Peça em Pé (Z)</label>
+                <span id="val-height" class="param-val">90 mm</span>
               </div>
-              <input type="range" id="param-height" min="5" max="50" step="1" value="20" class="slider" />
+              <input type="range" id="param-height" min="40" max="200" step="5" value="90" class="slider" />
             </div>
 
-            <div class="param-group" id="group-base" style="display: none;">
+            <div class="param-group" id="group-depth">
               <div class="param-header">
-                <label for="param-base">Espessura da Base</label>
-                <span id="val-base" class="param-val">3 mm</span>
+                <label for="param-depth">Volume do Corpo / Profundidade (Y)</label>
+                <span id="val-depth" class="param-val">24 mm</span>
               </div>
-              <input type="range" id="param-base" min="1" max="10" step="0.5" value="3" class="slider" />
+              <input type="range" id="param-depth" min="10" max="50" step="1" value="24" class="slider" />
             </div>
 
-            <div class="param-group" id="group-smooth">
-              <div class="param-header">
-                <label for="param-smooth">Suavização Orgânica</label>
-                <span id="val-smooth" class="param-val">Nível 2</span>
+            <div class="toggle-row" id="group-pedestal">
+              <div class="toggle-label-wrap">
+                <span class="toggle-label">Pedestal de Apoio na Mesa</span>
+                <span class="toggle-sub">Base sólida chanfrada para impressão 3D perfeita em pé</span>
               </div>
-              <input type="range" id="param-smooth" min="0" max="4" step="1" value="2" class="slider" />
+              <label class="switch">
+                <input type="checkbox" id="check-pedestal" checked />
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="param-group" id="group-detail" style="margin-top: 10px;">
+              <div class="param-header">
+                <label for="param-detail">Relevo de Músculos / Dobras</label>
+                <span id="val-detail" class="param-val">Natural (1.2)</span>
+              </div>
+              <input type="range" id="param-detail" min="0" max="2.5" step="0.2" value="1.2" class="slider" />
             </div>
           </div>
 
-          <!-- GENERATE BUTTON & PROGRESS -->
+          <!-- ACTION BUTTON & STATUS -->
           <div class="generate-action-box">
             <button id="btn-generate" class="btn-primary-glow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
               </svg>
-              <span id="btn-generate-text">Gerar Modelo 3D Agora</span>
+              <span id="btn-generate-text">Atualizar Escultura 3D</span>
             </button>
-
-            <!-- PROGRESS BAR FOR CLOUD GENERATION -->
-            <div id="cloud-progress-wrap" class="progress-wrap hidden">
-              <div class="progress-info">
-                <span id="progress-status-msg">Iniciando geração de IA na nuvem...</span>
-                <span id="progress-percent-val">0%</span>
-              </div>
-              <div class="progress-bar-bg">
-                <div id="progress-bar-fill" class="progress-bar-fill"></div>
-              </div>
-            </div>
-
-            <div id="gen-status" class="gen-status-text">Modelo pronto para inspeção</div>
+            <div id="gen-status" class="gen-status-text">Modelo pronto para inspeção e impressão 3D</div>
           </div>
         </aside>
 
@@ -217,17 +177,17 @@
           <div class="floating-toolbar top-toolbar">
             <div class="toolbar-group">
               <button class="tool-btn active" data-view="iso" title="Vista Isométrica 3D">Iso</button>
-              <button class="tool-btn" data-view="top" title="Vista Superior">Topo</button>
               <button class="tool-btn" data-view="front" title="Vista Frontal">Frente</button>
-              <button class="tool-btn" data-view="side" title="Vista Lateral">Lado</button>
+              <button class="tool-btn" data-view="side" title="Vista Lateral (Perfil)">Lado</button>
+              <button class="tool-btn" data-view="top" title="Vista Superior">Topo</button>
             </div>
             <div class="toolbar-separator"></div>
             <div class="toolbar-group">
-              <button id="btn-toggle-bed" class="tool-btn active" title="Mesa de Impressão 220x220mm">
+              <button id="btn-toggle-bed" class="tool-btn active" title="Mesa de Impressão 220x220mm (Z = 0)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
                 Mesa
               </button>
-              <button id="btn-toggle-wireframe" class="tool-btn" title="Malha de Triângulos">
+              <button id="btn-toggle-wireframe" class="tool-btn" title="Malha de Polígonos">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>
                 Malha
               </button>
@@ -238,10 +198,10 @@
           <div class="floating-toolbar bottom-toolbar">
             <span class="mat-label">Aparência:</span>
             <div class="material-pills">
-              <button class="mat-pill active" data-mat="texture" title="Textura Original">
+              <button class="mat-pill active" data-mat="texture" title="Textura Original da Imagem">
                 <span class="dot dot-texture"></span> Textura
               </button>
-              <button class="mat-pill" data-mat="clay" title="Argila / Escultura">
+              <button class="mat-pill" data-mat="clay" title="Escultura em Mármore Branco">
                 <span class="dot dot-clay"></span> Escultura
               </button>
               <button class="mat-pill" data-mat="pla_gold" title="Filamento Ouro Seda">
@@ -250,10 +210,10 @@
               <button class="mat-pill" data-mat="pla_silver" title="Filamento Prata Metálico">
                 <span class="dot dot-silver"></span> PLA Prata
               </button>
-              <button class="mat-pill" data-mat="pla_stealth" title="Preto Fosco">
+              <button class="mat-pill" data-mat="pla_stealth" title="Preto Fosco Stealth">
                 <span class="dot dot-stealth"></span> Preto Fosco
               </button>
-              <button class="mat-pill" data-mat="normals" title="Mapa de Normais">
+              <button class="mat-pill" data-mat="normals" title="Mapa de Curvatura e Normais">
                 <span class="dot dot-normals"></span> Normais
               </button>
             </div>
@@ -272,40 +232,40 @@
               <div class="status-indicator-dot"></div>
               <div>
                 <div class="status-title">Capacidade de Impressão: Aprovada</div>
-                <div class="status-sub">Malha Manifold • Pronta para o Slicer</div>
+                <div class="status-sub">Malha 100% Manifold • Pronta para o Slicer</div>
               </div>
             </div>
 
             <div class="metrics-grid">
               <div class="metric-card">
                 <span class="metric-label">Dimensão X (Largura)</span>
-                <span id="metric-x" class="metric-value">70.0 mm</span>
+                <span id="metric-x" class="metric-value">62.0 mm</span>
               </div>
               <div class="metric-card">
                 <span class="metric-label">Dimensão Y (Profundidade)</span>
-                <span id="metric-y" class="metric-value">55.0 mm</span>
+                <span id="metric-y" class="metric-value">24.0 mm</span>
               </div>
               <div class="metric-card">
                 <span class="metric-label">Dimensão Z (Altura)</span>
-                <span id="metric-z" class="metric-value">80.0 mm</span>
+                <span id="metric-z" class="metric-value">90.0 mm</span>
               </div>
               <div class="metric-card">
                 <span class="metric-label">Contagem de Polígonos</span>
-                <span id="metric-triangles" class="metric-value">42.180 tris</span>
+                <span id="metric-triangles" class="metric-value">38.400 tris</span>
               </div>
               <div class="metric-card">
                 <span class="metric-label">Volume Estimado</span>
-                <span id="metric-vol" class="metric-value">34.8 cm³</span>
+                <span id="metric-vol" class="metric-value">32.4 cm³</span>
               </div>
               <div class="metric-card">
                 <span class="metric-label">Filamento PLA Est.</span>
-                <span id="metric-weight" class="metric-value">~18.5 g</span>
+                <span id="metric-weight" class="metric-value">~17.2 g</span>
               </div>
             </div>
 
             <div class="print-time-banner">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-              <span>Tempo de Impressão Est.: <strong id="metric-time">~40m</strong> (a 60mm/s)</span>
+              <span>Tempo de Impressão Est.: <strong id="metric-time">~38m</strong> (a 60mm/s)</span>
             </div>
           </div>
 
@@ -341,70 +301,35 @@
           <div class="panel-section slicer-guide-card">
             <h3 class="guide-title">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              Dicas de Impressão 3D:
+              Dicas para o Fatiador (Cura / Bambu / Prusa):
             </h3>
             <ul class="guide-list">
-              <li><strong>Pés do Modelo:</strong> Já são posicionados encostados na mesa ($Z=0$).</li>
-              <li><strong>Suporte (Tree Support):</strong> Ative suportes orgânicos/árvore no fatiador para queixos e braços.</li>
-              <li><strong>Preenchimento:</strong> 15% Gyroid para resistência ideal.</li>
+              <li><strong>Orientação:</strong> O modelo já é gerado em pé apoiado na mesa ($Z = 0$).</li>
+              <li><strong>Pedestal:</strong> Com o pedestal ativado, a aderência na mesa aquecida é de 100%.</li>
+              <li><strong>Suportes em Árvore (Tree):</strong> Recomendado ativar suportes finos para queixo e mãos estendidas.</li>
+              <li><strong>Preenchimento:</strong> 15% Infill do tipo Gyroid para resistência ideal.</li>
             </ul>
           </div>
         </aside>
       </main>
 
-      <!-- MODAL: CONECTAR APIS DE IA -->
-      <div id="modal-api" class="modal-backdrop hidden">
-        <div class="modal-dialog">
-          <div class="modal-header">
-            <h3>Conectar Chaves de Inteligência Artificial</h3>
-            <button class="btn-close-modal" id="btn-close-api">&times;</button>
-          </div>
-          <div class="modal-body">
-            <!-- GOOGLE GEMINI KEY -->
-            <div class="input-card">
-              <label for="gemini-key-input">Sua Chave Google Gemini AI (Google AI Studio):</label>
-              <input type="password" id="gemini-key-input" placeholder="Cole sua chave aqui (ex: AQ.Ab8RN...)" class="custom-text-input" />
-              <span class="input-sub">Salva localmente no seu navegador (localStorage) para segurança.</span>
-            </div>
-
-            <!-- MESHY KEY -->
-            <div class="input-card" style="margin-top: 10px;">
-              <label for="meshy-key-input">Sua Chave Meshy.ai (Para o motor Meshy 7.1 Flagship):</label>
-              <input type="password" id="meshy-key-input" placeholder="msy_xxxxxxxxxxxxxxxxxxxxxx" class="custom-text-input" />
-              <span class="input-sub">Chave específica para o gerador 3D da Meshy (começa com msy_).</span>
-            </div>
-
-            <div class="modal-highlight-box">
-              <h4>Como pegar a chave da Meshy em 30 segundos (Grátis):</h4>
-              <ol>
-                <li>Acesse <strong><a href="https://www.meshy.ai" target="_blank" style="color: #00f2fe;">meshy.ai</a></strong> na aba que você já está logado.</li>
-                <li>No menu da esquerda, clique no ícone do seu perfil ou na engrenagem <strong>Settings ➔ API Keys</strong>.</li>
-                <li>Clique em <strong>Create Key</strong> (começa com <code>msy_...</code>) e cole acima!</li>
-              </ol>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn-primary" id="btn-save-api">Salvar Chaves & Ativar</button>
-          </div>
-        </div>
-      </div>
-
       <!-- MODAL: COMO FUNCIONA -->
       <div id="modal-guide" class="modal-backdrop hidden">
         <div class="modal-dialog">
           <div class="modal-header">
-            <h3>Como Funciona o Forge3D AI</h3>
+            <h3>Como Funciona o Forge3D</h3>
             <button class="btn-close-modal" id="btn-close-guide">&times;</button>
           </div>
           <div class="modal-body">
-            <p>Diferente de geradores de relevo básicos, o Forge3D AI opera com dois canais de IA:</p>
+            <p>O Forge3D converte fotos e ilustrações 2D diretamente em modelos 3D volumétricos para impressão 3D:</p>
             <ul>
-              <li><strong>Canal Nuvem (Meshy 7.1 / Multi-View):</strong> Conecta diretamente aos clusters de GPU na nuvem, permitindo que você envie até 3 fotos de ângulos diferentes e receba o boneco 3D volumétrico completo, com exportação para STL sem pagar mensalidades.</li>
-              <li><strong>Canal Instantâneo Navegador:</strong> Faz a remoção de fundo e infla o corpo do boneco em 360° em menos de 1 segundo sem usar GPU nem ocupar a memória do seu computador.</li>
+              <li><strong>Segmentação Perimetral Inteligente:</strong> Remove fundos claros, pretos ou coloridos sem apagar partes escuras do personagem (cabelos, botas, olhos).</li>
+              <li><strong>Escultura por Transformada de Distância:</strong> Avalia a espessura anatômica de cada membro individualmente. Pernas, braços, capa e peito são inflados com raios e curvaturas independentes, sem fusão tubular.</li>
+              <li><strong>Pedestal Hermético Manifold:</strong> Integra uma base chanfrada à prova de falhas na mesa aquecida ($Z = 0$), garantindo estabilidade no fatiamento para Bambu Studio, Cura e PrusaSlicer.</li>
             </ul>
           </div>
           <div class="modal-footer">
-            <button class="btn-primary" id="btn-ok-guide">Fechar</button>
+            <button class="btn-primary" id="btn-ok-guide">Entendido</button>
           </div>
         </div>
       </div>
