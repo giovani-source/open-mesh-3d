@@ -15,11 +15,11 @@ export class MeshGenerator {
     let width = targetResolution;
     let height = Math.round(targetResolution * (image.naturalHeight / image.naturalWidth));
 
-    // Limites de proporção
-    if (height > targetResolution * 1.8) {
-      height = Math.round(targetResolution * 1.8);
-    } else if (height < targetResolution * 0.5) {
-      height = Math.round(targetResolution * 0.5);
+    // Limites de proporção razoáveis
+    if (height > targetResolution * 2.2) {
+      height = Math.round(targetResolution * 2.2);
+    } else if (height < targetResolution * 0.45) {
+      height = Math.round(targetResolution * 0.45);
     }
 
     canvas.width = width;
@@ -77,8 +77,6 @@ export class MeshGenerator {
     const colorTolerance = Math.min(50, Math.max(26, avgDev * 2.2));
 
     // 2. Flood Fill (BFS) iniciando exclusivamente a partir das 4 bordas externas
-    // Isso garante que apenas o fundo conectado ao exterior seja removido.
-    // Partes escuras internas (cabelo preto, traje escuro, botas) NUNCA são apagadas!
     const isBg = new Uint8Array(width * height);
     const queue = [];
 
@@ -141,24 +139,23 @@ export class MeshGenerator {
       }
     }
 
-    // 3. Tudo o que não foi marcado como fundo conectado à borda é Primeiro Plano (Personagem)
+    // 3. Tudo o que não foi marcado como fundo conectado à borda é Primeiro Plano
     for (let i = 0; i < width * height; i++) {
       const r = data[i * 4];
       const g = data[i * 4 + 1];
       const b = data[i * 4 + 2];
       const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       depthMap[i] = lum;
-
       rawMask[i] = isBg[i] === 1 ? 0 : 1;
     }
 
-    // 4. Fechamento morfológico para eliminar micro-ruídos
-    const mask = new Uint8Array(width * height);
+    // 4. Fechamento morfológico de micro-ruídos
+    const tempMask = new Uint8Array(width * height);
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = y * width + x;
         if (rawMask[idx] === 1) {
-          mask[idx] = 1;
+          tempMask[idx] = 1;
         } else {
           let count = 0;
           for (let dy = -1; dy <= 1; dy++) {
@@ -166,13 +163,81 @@ export class MeshGenerator {
               if (rawMask[(y + dy) * width + (x + dx)] === 1) count++;
             }
           }
-          mask[idx] = count >= 6 ? 1 : 0;
+          tempMask[idx] = count >= 6 ? 1 : 0;
         }
       }
     }
 
-    // 5. Normalização do mapa de relevo / micro-detalhes
-    // Usa gradiente de Sobel para destacar bordas musculares e dobras
+    // 5. Extrair o Maior Componente Conectado (Elimina linhas tracejadas, poeira e marcas de corte)
+    const labels = new Int32Array(width * height).fill(0);
+    let currentLabel = 1;
+    const componentSizes = [0];
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        if (tempMask[idx] === 1 && labels[idx] === 0) {
+          // Iniciar BFS para marcar componente
+          let size = 0;
+          const compQueue = [idx];
+          labels[idx] = currentLabel;
+
+          let qHead = 0;
+          while (qHead < compQueue.length) {
+            const p = compQueue[qHead++];
+            size++;
+            const px = p % width;
+            const py = Math.floor(p / width);
+
+            const nbs = [
+              px > 0 ? py * width + (px - 1) : -1,
+              px < width - 1 ? py * width + (px + 1) : -1,
+              py > 0 ? (py - 1) * width + px : -1,
+              py < height - 1 ? (py + 1) * width + px : -1
+            ];
+
+            for (let nb of nbs) {
+              if (nb !== -1 && tempMask[nb] === 1 && labels[nb] === 0) {
+                labels[nb] = currentLabel;
+                compQueue.push(nb);
+              }
+            }
+          }
+
+          componentSizes[currentLabel] = size;
+          currentLabel++;
+        }
+      }
+    }
+
+    // Encontrar o maior componente
+    let maxCompIdx = 1;
+    let maxCompSize = 0;
+    for (let c = 1; c < componentSizes.length; c++) {
+      if (componentSizes[c] > maxCompSize) {
+        maxCompSize = componentSizes[c];
+        maxCompIdx = c;
+      }
+    }
+
+    // Máscara final com o personagem isolado
+    const mask = new Uint8Array(width * height);
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        if (labels[idx] === maxCompIdx) {
+          mask[idx] = 1;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+
+    // 6. Normalização do mapa de relevo
     const reliefMap = new Float32Array(width * height);
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
@@ -193,13 +258,17 @@ export class MeshGenerator {
       reliefMap,
       mask,
       canvas,
-      aspectRatio: width / height
+      bounds: {
+        minX: Math.max(0, minX),
+        maxX: Math.min(width - 1, maxX),
+        minY: Math.max(0, minY),
+        maxY: Math.min(height - 1, maxY)
+      }
     };
   }
 
   /**
-   * Cálculo da Transformada de Distância Euclidiana em 8 Direções (Chamfer Distance Transform)
-   * Determina a espessura e raio local de cada membro (braços, pernas, torso, cabeça)
+   * Cálculo da Transformada de Distância Euclidiana em 8 Direções
    */
   static computeDistanceTransform(mask, W, H) {
     const INF = 999999;
@@ -245,34 +314,39 @@ export class MeshGenerator {
   }
 
   /**
-   * ESCULTURA 3D VOLUMÉTRICA ORGÂNICA REAL
-   * Converte a imagem em um boneco tridimensional completo em pé na mesa:
-   * - Cada membro (pernas, braços, peito, cabeça) infla em volume anatômico próprio
-   * - Espaço entre pernas permanece vazio e separado
-   * - Frente orientada para o usuário (-Y) com textura 1-to-1 nítida
-   * - Pedestal chanfrado opcional para impressão 3D estável no slicer
+   * ESCULTURA 3D VOLUMÉTRICA ORGÂNICA REAL COM PROPORÇÕES ANATÔMICAS REAIS
+   * - O personagem fica 100% em pé na mesa aquecida (eixo Z vertical)
+   * - Proporções X/Z reais baseadas na silhueta recortada (sem esticar)
+   * - Membros separados com volume arredondado (pernas, braços, capa, torso)
+   * - Pedestal integrado opcional para estabilidade absoluta na impressão
    */
   static createVolumetricSculpture(processedImage, options = {}) {
     const {
-      targetHeight = 90,     // mm (altura em pé ao longo do eixo Z)
-      maxDepth = 24,         // mm (volume frente/verso do corpo)
-      depthDetail = 1.0,     // intensidade de relevo muscular/dobras
-      addPedestal = true,    // adiciona base estável na mesa aquecida
+      targetHeight = 90,     // mm (altura em pé Z)
+      maxDepth = 24,         // mm (espessura frente/verso Y)
+      depthDetail = 1.2,     // relevo muscular
+      addPedestal = true,    // base na mesa
       pedestalHeight = 3.2   // mm
     } = options;
 
-    const { width: W, height: H, mask, reliefMap } = processedImage;
-    const targetWidth = targetHeight * (W / H);
+    const { width: W, height: H, mask, reliefMap, bounds } = processedImage;
 
-    // 1. Transformada de Distância para obter espessura anatômica
+    const { minX, maxX, minY, maxY } = bounds;
+    const charW = Math.max(1, maxX - minX);
+    const charH = Math.max(1, maxY - minY);
+
+    // Proporção anatômica verdadeira do personagem
+    const targetWidth = targetHeight * (charW / charH);
+
+    // Transformada de Distância
     const dt = this.computeDistanceTransform(mask, W, H);
 
     let maxDist = 1;
     for (let i = 0; i < W * H; i++) {
-      if (dt[i] > maxDist) maxDist = dt[i];
+      if (mask[i] === 1 && dt[i] > maxDist) maxDist = dt[i];
     }
 
-    // Mapear pixels de primeiro plano
+    // Mapear vértices de primeiro plano
     const vIdx = new Int32Array(W * H).fill(-1);
     let totalFgPixels = 0;
     for (let i = 0; i < W * H; i++) {
@@ -285,19 +359,6 @@ export class MeshGenerator {
       throw new Error('Nenhum objeto detectado na imagem.');
     }
 
-    // Encontrar ponto mais baixo do personagem (pés) e ponto mais alto (cabeça)
-    let lowestPixelY = 0;
-    let highestPixelY = H - 1;
-    for (let y = H - 1; y >= 0; y--) {
-      for (let x = 0; x < W; x++) {
-        if (mask[y * W + x] === 1) {
-          lowestPixelY = Math.max(lowestPixelY, y);
-          highestPixelY = Math.min(highestPixelY, y);
-        }
-      }
-    }
-    const charPixelHeight = Math.max(1, lowestPixelY - highestPixelY);
-
     const positions = [];
     const uvs = [];
     const indices = [];
@@ -305,58 +366,58 @@ export class MeshGenerator {
     const zBaseOffset = addPedestal ? pedestalHeight : 0;
     const usableHeight = targetHeight - zBaseOffset;
 
-    // 2. Vértices da Frente (Orientados para -Y, em direção ao usuário e câmera)
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    // 1. Vértices da Frente (Orientados para -Y, em direção à câmera frontal)
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
         if (mask[idx] === 0) continue;
 
         const d = dt[idx];
         const dNorm = d / maxDist;
 
-        // Inflação anatômica orgânica: curvas esféricas nos membros e cúpula suave no torso
+        // Curvatura esférica/cilíndrica orgânica
         const dome = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.7 + Math.pow(dNorm, 0.65) * 0.3) * (maxDepth / 2);
+        const bodyThickness = (dome * 0.72 + Math.pow(dNorm, 0.65) * 0.28) * (maxDepth / 2);
         const emboss = (reliefMap[idx] || 0) * depthDetail * 1.5;
 
-        const xPos = (x / (W - 1) - 0.5) * targetWidth;
-        // Frente projeta para -Y (em direção à câmera frontal)
+        // X proporcional centralizado no eixo
+        const xPos = ((x - minX) / charW - 0.5) * targetWidth;
+        // Frente projeta para -Y (em direção ao observador)
         const yPos = -(Math.max(0.6, bodyThickness + emboss));
-        // Z começa nos pés e sobe até a cabeça
-        const zPos = zBaseOffset + ((lowestPixelY - y) / charPixelHeight) * usableHeight;
+        // Z em pé: pés em zBaseOffset, cabeça em targetHeight
+        const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
-        // UV da textura frontal
+        // UV exato no canvas original
         uvs.push(x / (W - 1), 1.0 - y / (H - 1));
       }
     }
 
-    // 3. Vértices do Verso (Orientados para +Y, costas do boneco)
+    // 2. Vértices do Verso (Orientados para +Y, costas do boneco)
     const backOffset = totalFgPixels;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
         if (mask[idx] === 0) continue;
 
         const d = dt[idx];
         const dNorm = d / maxDist;
         const dome = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.7 + Math.pow(dNorm, 0.65) * 0.3) * (maxDepth / 2);
+        const bodyThickness = (dome * 0.72 + Math.pow(dNorm, 0.65) * 0.28) * (maxDepth / 2);
 
-        const xPos = (x / (W - 1) - 0.5) * targetWidth;
+        const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         // Costas projetam para +Y
         const yPos = +(Math.max(0.6, bodyThickness * 0.88));
-        const zPos = zBaseOffset + ((lowestPixelY - y) / charPixelHeight) * usableHeight;
+        const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
-        // UV das costas espelhado
         uvs.push(1.0 - x / (W - 1), 1.0 - y / (H - 1));
       }
     }
 
-    // 4. Triangulação das superfícies da frente e de trás
-    for (let y = 0; y < H - 1; y++) {
-      for (let x = 0; x < W - 1; x++) {
+    // 3. Triangulação das superfícies da frente e de trás
+    for (let y = minY; y < maxY; y++) {
+      for (let x = minX; x < maxX; x++) {
         const iA = vIdx[y * W + x];
         const iB = vIdx[y * W + (x + 1)];
         const iC = vIdx[(y + 1) * W + x];
@@ -374,8 +435,7 @@ export class MeshGenerator {
       }
     }
 
-    // 5. Paredes Laterais Herméticas (Perimeter Skirt)
-    // Veda a silhueta em 100% de solidez manifold
+    // 4. Paredes Laterais Herméticas (Perimeter Skirt)
     const addSkirtQuad = (frontA, frontB) => {
       const backA = backOffset + frontA;
       const backB = backOffset + frontB;
@@ -383,35 +443,35 @@ export class MeshGenerator {
       indices.push(frontB, backA, backB);
     };
 
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const curr = vIdx[y * W + x];
         if (curr === -1) continue;
 
         // Borda Direita
-        if (x === W - 1 || vIdx[y * W + x + 1] === -1) {
-          if (y < H - 1 && vIdx[(y + 1) * W + x] !== -1) {
+        if (x === maxX || vIdx[y * W + x + 1] === -1) {
+          if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
             const next = vIdx[(y + 1) * W + x];
             addSkirtQuad(curr, next);
           }
         }
         // Borda Esquerda
-        if (x === 0 || vIdx[y * W + x - 1] === -1) {
-          if (y < H - 1 && vIdx[(y + 1) * W + x] !== -1) {
+        if (x === minX || vIdx[y * W + x - 1] === -1) {
+          if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
             const next = vIdx[(y + 1) * W + x];
             addSkirtQuad(next, curr);
           }
         }
         // Borda Superior
-        if (y === 0 || vIdx[(y - 1) * W + x] === -1) {
-          if (x < W - 1 && vIdx[y * W + x + 1] !== -1) {
+        if (y === minY || vIdx[(y - 1) * W + x] === -1) {
+          if (x < maxX && vIdx[y * W + x + 1] !== -1) {
             const next = vIdx[y * W + x + 1];
             addSkirtQuad(next, curr);
           }
         }
         // Borda Inferior (Pés)
-        if (y === H - 1 || vIdx[(y + 1) * W + x] === -1) {
-          if (x < W - 1 && vIdx[y * W + x + 1] !== -1) {
+        if (y === maxY || vIdx[(y + 1) * W + x] === -1) {
+          if (x < maxX && vIdx[y * W + x + 1] !== -1) {
             const next = vIdx[y * W + x + 1];
             addSkirtQuad(curr, next);
           }
@@ -419,7 +479,7 @@ export class MeshGenerator {
       }
     }
 
-    // 6. Pedestal de Apoio Integrado (Sólido para Mesa Aquecida Z = 0)
+    // 5. Pedestal de Apoio Integrado (Sólido para Mesa Aquecida Z = 0)
     if (addPedestal) {
       const pedSegments = 48;
       const pedRadiusX = Math.max(16, (targetWidth * 0.5) + 6);
@@ -440,7 +500,7 @@ export class MeshGenerator {
         uvs.push(0.5 + 0.5 * Math.cos(theta), 0.5 + 0.5 * Math.sin(theta));
       }
 
-      // Fundo do pedestal (Z = 0, normal voltada para baixo -Z)
+      // Fundo do pedestal (Z = 0)
       for (let i = 0; i < pedSegments; i++) {
         const i0 = botRingStart + i;
         const i1 = botRingStart + ((i + 1) % pedSegments);
@@ -467,7 +527,7 @@ export class MeshGenerator {
         indices.push(b1, m1, m0);
       }
 
-      // Anel do topo (chanfrado para dentro em 1.5mm)
+      // Anel do topo (chanfrado)
       const topRingStart = positions.length / 3;
       const topRadiusX = pedRadiusX - 1.5;
       const topRadiusY = pedRadiusY - 1.5;
@@ -531,19 +591,22 @@ export class MeshGenerator {
       reliefDepth = 12
     } = options;
 
-    const { width: W, height: H, depthMap, mask } = processedImage;
-    const targetHeight = targetWidth * (H / W);
+    const { width: W, height: H, depthMap, mask, bounds } = processedImage;
+    const { minX, maxX, minY, maxY } = bounds;
+    const charW = Math.max(1, maxX - minX);
+    const charH = Math.max(1, maxY - minY);
+    const targetHeight = targetWidth * (charH / charW);
 
     const positions = [];
     const uvs = [];
     const indices = [];
 
     // Malha do topo (relevo)
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
-        const xPos = (x / (W - 1) - 0.5) * targetWidth;
-        const yPos = (y / (H - 1) - 0.5) * targetHeight;
+        const xPos = ((x - minX) / charW - 0.5) * targetWidth;
+        const yPos = ((y - minY) / charH - 0.5) * targetHeight;
         
         let zPos = baseThickness;
         if (mask[idx] === 1) {
@@ -556,34 +619,34 @@ export class MeshGenerator {
     }
 
     // Malha da base plana (Z = 0)
-    const baseOffset = W * H;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const xPos = (x / (W - 1) - 0.5) * targetWidth;
-        const yPos = (y / (H - 1) - 0.5) * targetHeight;
+    const baseOffset = (charH + 1) * (charW + 1);
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const xPos = ((x - minX) / charW - 0.5) * targetWidth;
+        const yPos = ((y - minY) / charH - 0.5) * targetHeight;
         positions.push(xPos, yPos, 0);
         uvs.push(x / (W - 1), 1.0 - y / (H - 1));
       }
     }
 
     // Triângulos do topo
-    for (let y = 0; y < H - 1; y++) {
-      for (let x = 0; x < W - 1; x++) {
-        const iA = y * W + x;
-        const iB = y * W + (x + 1);
-        const iC = (y + 1) * W + x;
-        const iD = (y + 1) * W + (x + 1);
+    const rowStride = charW + 1;
+    for (let y = 0; y < charH; y++) {
+      for (let x = 0; x < charW; x++) {
+        const iA = y * rowStride + x;
+        const iB = y * rowStride + (x + 1);
+        const iC = (y + 1) * rowStride + x;
+        const iD = (y + 1) * rowStride + (x + 1);
 
         indices.push(iA, iC, iB);
         indices.push(iB, iC, iD);
 
-        // Triângulos do fundo (invertidos)
         indices.push(baseOffset + iA, baseOffset + iB, baseOffset + iC);
         indices.push(baseOffset + iB, baseOffset + iD, baseOffset + iC);
       }
     }
 
-    // Paredes laterais do bloco da medalha
+    // Paredes laterais
     const addSideWall = (tA, tB) => {
       const bA = baseOffset + tA;
       const bB = baseOffset + tB;
@@ -591,13 +654,13 @@ export class MeshGenerator {
       indices.push(tB, bB, bA);
     };
 
-    for (let x = 0; x < W - 1; x++) {
-      addSideWall(x, x + 1); // Borda Norte
-      addSideWall((H - 1) * W + (x + 1), (H - 1) * W + x); // Borda Sul
+    for (let x = 0; x < charW; x++) {
+      addSideWall(x, x + 1);
+      addSideWall(charH * rowStride + (x + 1), charH * rowStride + x);
     }
-    for (let y = 0; y < H - 1; y++) {
-      addSideWall((y + 1) * W, y * W); // Borda Oeste
-      addSideWall(y * W + (W - 1), (y + 1) * W + (W - 1)); // Borda Leste
+    for (let y = 0; y < charH; y++) {
+      addSideWall((y + 1) * rowStride, y * rowStride);
+      addSideWall(y * rowStride + charW, (y + 1) * rowStride + charW);
     }
 
     const geometry = new THREE.BufferGeometry();
