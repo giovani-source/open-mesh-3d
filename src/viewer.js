@@ -9,6 +9,7 @@ export class Viewer3D {
   constructor(containerElement) {
     this.container = containerElement;
     this.currentMesh = null;
+    this.currentModel = null;
     this.currentTexture = null;
     this.materialMode = 'texture';
     this.wireframeVisible = false;
@@ -24,13 +25,14 @@ export class Viewer3D {
 
   initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0e1320);
+    this.scene.background = new THREE.Color(0x0a0f1d);
 
     const width = this.container.clientWidth || 800;
     const height = this.container.clientHeight || 600;
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
-    this.camera.position.set(120, 130, 140);
+    // Câmera posicionada de frente para o boneco em pé (olhando levemente de cima)
+    this.camera.position.set(0, -180, 70);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     this.renderer.setSize(width, height);
@@ -38,7 +40,7 @@ export class Viewer3D {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.2;
 
     this.container.appendChild(this.renderer.domElement);
 
@@ -46,7 +48,7 @@ export class Viewer3D {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.maxPolarAngle = Math.PI / 2 + 0.15;
-    this.controls.target.set(0, 0, 15);
+    this.controls.target.set(0, 0, 45); // Foco no centro do boneco em pé
     this.controls.update();
 
     this.modelGroup = new THREE.Group();
@@ -54,22 +56,22 @@ export class Viewer3D {
   }
 
   initLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     this.scene.add(ambientLight);
 
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.5);
-    this.keyLight.position.set(100, 160, 120);
+    // Luz frontal principal
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.keyLight.position.set(60, -140, 120);
     this.keyLight.castShadow = true;
-    this.keyLight.shadow.mapSize.width = 2048;
-    this.keyLight.shadow.mapSize.height = 2048;
     this.scene.add(this.keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x70a1ff, 0.9);
-    rimLight.position.set(-100, -120, -60);
+    // Luz de contorno traseira
+    const rimLight = new THREE.DirectionalLight(0x70a1ff, 1.0);
+    rimLight.position.set(-60, 140, 80);
     this.scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.5);
-    fillLight.position.set(-80, 100, 80);
+    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.6);
+    fillLight.position.set(-100, -80, 60);
     this.scene.add(fillLight);
   }
 
@@ -80,20 +82,22 @@ export class Viewer3D {
 
     const bedGeo = new THREE.BoxGeometry(bedWidth, bedLength, 4);
     const bedMat = new THREE.MeshStandardMaterial({
-      color: 0x181e2b,
-      roughness: 0.8,
-      metalness: 0.2
+      color: 0x141a27,
+      roughness: 0.85,
+      metalness: 0.15
     });
     this.bedMesh = new THREE.Mesh(bedGeo, bedMat);
     this.bedMesh.position.set(0, 0, -2);
     this.bedMesh.receiveShadow = true;
     this.bedGroup.add(this.bedMesh);
 
-    const grid = new THREE.GridHelper(bedWidth, 22, 0x00f2fe, 0x27384e);
+    // Grade da mesa aquecida (Z = 0)
+    const grid = new THREE.GridHelper(bedWidth, 22, 0x00f2fe, 0x223249);
     grid.rotation.x = Math.PI / 2;
     grid.position.set(0, 0, 0.05);
     this.bedGroup.add(grid);
 
+    // Clipes da mesa
     const clipGeo = new THREE.BoxGeometry(12, 12, 3);
     const clipMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8, roughness: 0.3 });
     const corners = [
@@ -138,6 +142,9 @@ export class Viewer3D {
     }
   }
 
+  /**
+   * Define o modelo 3D do personagem em pé na mesa
+   */
   setModel(geometry, dimensions) {
     while (this.modelGroup.children.length > 0) {
       const obj = this.modelGroup.children[0];
@@ -145,6 +152,7 @@ export class Viewer3D {
       this.modelGroup.remove(obj);
     }
 
+    this.currentModel = null;
     this.currentGeometry = geometry;
     this.currentMesh = new THREE.Mesh(geometry, this.getMaterial(this.materialMode));
     this.currentMesh.castShadow = true;
@@ -162,13 +170,10 @@ export class Viewer3D {
 
     this.modelGroup.add(this.currentMesh);
 
-    const targetZ = dimensions ? dimensions.height / 2 : 15;
+    const targetZ = dimensions ? dimensions.height / 2 : 45;
     this.controls.target.set(0, 0, targetZ);
   }
 
-  /**
-   * Carrega modelo GLB retornado pela IA da Meshy / Trellis
-   */
   async loadGLBFromUrl(url) {
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
@@ -182,22 +187,27 @@ export class Viewer3D {
 
           const model = gltf.scene;
           
-          // Calcular caixa envolvente e centralizar na mesa
+          // Orientar o modelo em pé se vier em eixos Y-up
           const bbox = new THREE.Box3().setFromObject(model);
           const size = bbox.getSize(new THREE.Vector3());
-          const center = bbox.getCenter(new THREE.Vector3());
+          
+          // Se Y for a maior dimensão, gira para Z-up
+          if (size.y > size.z) {
+            model.rotation.x = Math.PI / 2;
+          }
 
-          // Escalar para caber confortavelmente na mesa de impressão (aprox 80mm de altura)
-          const maxDim = Math.max(size.x, size.y, size.z);
-          const targetScale = maxDim > 0 ? 80 / maxDim : 1;
+          const newBbox = new THREE.Box3().setFromObject(model);
+          const newSize = newBbox.getSize(new THREE.Vector3());
+          const maxDim = Math.max(newSize.x, newSize.y, newSize.z);
+          const targetScale = maxDim > 0 ? 90 / maxDim : 1;
           model.scale.set(targetScale, targetScale, targetScale);
 
-          // Recalcular após escala
-          bbox.setFromObject(model);
-          const scaledCenter = bbox.getCenter(new THREE.Vector3());
-          model.position.x = -scaledCenter.x;
-          model.position.y = -scaledCenter.y;
-          model.position.z = -bbox.min.z; // Apoiar os pés na mesa a Z=0
+          // Centralizar na mesa com pés em Z=0
+          const finalBbox = new THREE.Box3().setFromObject(model);
+          const finalCenter = finalBbox.getCenter(new THREE.Vector3());
+          model.position.x = -finalCenter.x;
+          model.position.y = -finalCenter.y;
+          model.position.z = -finalBbox.min.z; // Pés perfeitamente encostados na mesa aquecida!
 
           let primaryMesh = null;
           let totalTriangles = 0;
@@ -223,16 +233,16 @@ export class Viewer3D {
           this.currentModel = model;
           this.modelGroup.add(model);
 
-          const finalBox = new THREE.Box3().setFromObject(model);
-          const finalSize = finalBox.getSize(new THREE.Vector3());
+          const uprightBox = new THREE.Box3().setFromObject(model);
+          const uprightSize = uprightBox.getSize(new THREE.Vector3());
 
-          this.controls.target.set(0, 0, finalSize.z / 2);
+          this.controls.target.set(0, 0, uprightSize.z / 2);
 
           resolve({
             dimensions: {
-              width: finalSize.x,
-              depth: finalSize.y,
-              height: finalSize.z
+              width: uprightSize.x,
+              depth: uprightSize.y,
+              height: uprightSize.z
             },
             stats: {
               triangles: Math.round(totalTriangles),
@@ -257,6 +267,13 @@ export class Viewer3D {
           metalness: 0.15
         });
 
+      case 'clay':
+        return new THREE.MeshStandardMaterial({
+          color: 0xf5f6fa,
+          roughness: 0.65,
+          metalness: 0.05
+        });
+
       case 'pla_gold':
         return new THREE.MeshStandardMaterial({
           color: 0xd4af37,
@@ -275,13 +292,6 @@ export class Viewer3D {
         return new THREE.MeshStandardMaterial({
           color: 0x1e272e,
           roughness: 0.85,
-          metalness: 0.05
-        });
-
-      case 'clay':
-        return new THREE.MeshStandardMaterial({
-          color: 0xf5f6fa,
-          roughness: 0.65,
           metalness: 0.05
         });
 
@@ -318,22 +328,22 @@ export class Viewer3D {
   setCameraView(view) {
     switch (view) {
       case 'iso':
-        this.camera.position.set(120, 130, 140);
+        this.camera.position.set(90, -140, 90);
         break;
       case 'top':
-        this.camera.position.set(0, 0, 220);
+        this.camera.position.set(0, 0, 240);
         break;
       case 'front':
-        this.camera.position.set(0, -200, 30);
+        this.camera.position.set(0, -200, 45); // Olhando o boneco de frente
         break;
       case 'side':
-        this.camera.position.set(200, 0, 30);
+        this.camera.position.set(200, 0, 45); // Olhando o perfil lateral
         break;
     }
     this.controls.update();
   }
 
-  exportSTL(filename = 'modelo_3d.stl', isBinary = true) {
+  exportSTL(filename = 'boneco_3d.stl', isBinary = true) {
     const targetObj = this.currentModel || this.currentMesh;
     if (!targetObj) return null;
     const exporter = new STLExporter();
@@ -352,7 +362,7 @@ export class Viewer3D {
     return { sizeBytes: blob.size, isBinary };
   }
 
-  exportOBJ(filename = 'modelo_3d.obj') {
+  exportOBJ(filename = 'boneco_3d.obj') {
     const targetObj = this.currentModel || this.currentMesh;
     if (!targetObj) return null;
     const exporter = new OBJExporter();
@@ -368,7 +378,7 @@ export class Viewer3D {
     return { sizeBytes: blob.size };
   }
 
-  exportGLB(filename = 'modelo_3d.glb') {
+  exportGLB(filename = 'boneco_3d.glb') {
     const targetObj = this.currentModel || this.currentMesh;
     if (!targetObj) return;
     const exporter = new GLTFExporter();

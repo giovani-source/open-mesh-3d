@@ -6,17 +6,17 @@ import * as THREE from 'three';
 
 export class MeshGenerator {
   /**
-   * Processa a imagem extraindo luminância, canais de cor e máscara de remoção de fundo
+   * Processa a imagem extraindo canais de cor e máscara de silhueta (remoção inteligente de fundo)
    */
   static getImageData(image, targetResolution = 150) {
     const canvas = document.createElement('canvas');
     let width = targetResolution;
     let height = Math.round(targetResolution * (image.naturalHeight / image.naturalWidth));
     
-    if (height > targetResolution * 1.5) {
-      height = Math.round(targetResolution * 1.5);
-    } else if (height < targetResolution * 0.5) {
-      height = Math.round(targetResolution * 0.5);
+    if (height > targetResolution * 1.6) {
+      height = Math.round(targetResolution * 1.6);
+    } else if (height < targetResolution * 0.6) {
+      height = Math.round(targetResolution * 0.6);
     }
 
     canvas.width = width;
@@ -31,16 +31,31 @@ export class MeshGenerator {
     const alphaMap = new Float32Array(width * height);
     const mask = new Uint8Array(width * height);
 
-    // Amostrar cantos para detectar cor do fundo (geralmente branco, cinza claro ou transparente)
-    let bgR = 0, bgG = 0, bgB = 0;
-    const cornerIndices = [0, (width - 1) * 4, (height - 1) * width * 4, (height * width - 1) * 4];
-    cornerIndices.forEach(idx => {
-      bgR += data[idx] / 4;
-      bgG += data[idx + 1] / 4;
-      bgB += data[idx + 2] / 4;
-    });
+    // Amostrar bordas para detectar a cor predominante de fundo (branco, cinza ou preto)
+    let bgR = 0, bgG = 0, bgB = 0, sampleCount = 0;
+    for (let x = 0; x < width; x += 2) {
+      const topIdx = x * 4;
+      const botIdx = ((height - 1) * width + x) * 4;
+      bgR += data[topIdx] + data[botIdx];
+      bgG += data[topIdx + 1] + data[botIdx + 1];
+      bgB += data[topIdx + 2] + data[botIdx + 2];
+      sampleCount += 2;
+    }
+    for (let y = 0; y < height; y += 2) {
+      const leftIdx = (y * width) * 4;
+      const rightIdx = (y * width + (width - 1)) * 4;
+      bgR += data[leftIdx] + data[rightIdx];
+      bgG += data[leftIdx + 1] + data[rightIdx + 1];
+      bgB += data[leftIdx + 2] + data[rightIdx + 2];
+      sampleCount += 2;
+    }
 
-    const isLightBg = (bgR + bgG + bgB) / 3 > 200;
+    bgR /= sampleCount;
+    bgG /= sampleCount;
+    bgB /= sampleCount;
+
+    const isLightBg = (bgR + bgG + bgB) / 3 > 180;
+    const isDarkBg = (bgR + bgG + bgB) / 3 < 40;
 
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
@@ -53,15 +68,21 @@ export class MeshGenerator {
       depthMap[idx] = luminance;
       alphaMap[idx] = a / 255;
 
-      // Distância de cor euclidiana ao fundo
       const distToBg = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
 
-      // É primeiro plano (objeto/boneco) se for diferente do fundo e tiver opacidade
-      if (a < 50 || distToBg < 35 || (isLightBg && r > 240 && g > 240 && b > 240)) {
-        mask[idx] = 0; // Fundo
-      } else {
-        mask[idx] = 1; // Objeto / Boneco 3D
+      // Critério de recorte de fundo
+      let isBg = false;
+      if (a < 50) {
+        isBg = true;
+      } else if (isLightBg && r > 220 && g > 220 && b > 220) {
+        isBg = true;
+      } else if (isDarkBg && r < 35 && g < 35 && b < 35) {
+        isBg = true;
+      } else if (distToBg < 40) {
+        isBg = true;
       }
+
+      mask[idx] = isBg ? 0 : 1;
     }
 
     return {
@@ -75,280 +96,136 @@ export class MeshGenerator {
     };
   }
 
-  static smoothDepthMap(depthMap, width, height, iterations = 1) {
-    let current = new Float32Array(depthMap);
-    let next = new Float32Array(depthMap.length);
-
-    for (let it = 0; it < iterations; it++) {
-      for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-          const idx = y * width + x;
-          const centerVal = current[idx];
-          let sum = 0;
-          let weightSum = 0;
-
-          for (let dy = -1; dy <= 1; dy++) {
-            const ny = y + dy;
-            if (ny < 0 || ny >= height) continue;
-            for (let dx = -1; dx <= 1; dx++) {
-              const nx = x + dx;
-              if (nx < 0 || nx >= width) continue;
-              const nIdx = ny * width + nx;
-              const val = current[nIdx];
-
-              const spatialDist = dx * dx + dy * dy;
-              const spatialWeight = Math.exp(-spatialDist / 2);
-              const rangeDiff = val - centerVal;
-              const rangeWeight = Math.exp(-(rangeDiff * rangeDiff) / 0.04);
-              const weight = spatialWeight * rangeWeight;
-
-              sum += val * weight;
-              weightSum += weight;
-            }
-          }
-
-          next[idx] = weightSum > 0 ? sum / weightSum : centerVal;
-        }
-      }
-      current.set(next);
-    }
-
-    return current;
-  }
-
   /**
-   * Relevo Estanque (Manifold) com base fechada a Z=0 para impressão 3D imediata
+   * BONECO 3D VOLUMÉTRICO EM PÉ (Upright Figurine 360°)
+   * Gera um personagem tridimensional completo em pé na mesa aquecida (Z=0 pés, Z=Topo cabeça)
+   * com corpo arredondado 360° fechado e manifold, sem deitar na mesa.
    */
-  static createWatertightRelief(processedImage, options = {}) {
+  static createUprightFigurine(processedImage, options = {}) {
     const {
-      targetWidth = 80,
-      reliefHeight = 8,
-      baseThickness = 3,
-      invertDepth = false,
-      smoothing = 1,
-      shape = 'rect'
-    } = options;
-
-    const { width: Nx, height: Ny, depthMap: rawDepth, mask } = processedImage;
-    const targetHeight = targetWidth / (Nx / Ny);
-
-    let depth = rawDepth;
-    if (smoothing > 0) {
-      depth = this.smoothDepthMap(rawDepth, Nx, Ny, smoothing);
-    }
-
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-
-    const getTopZ = (x, y) => {
-      const idx = y * Nx + x;
-      let val = depth[idx];
-      if (invertDepth) val = 1.0 - val;
-
-      if (shape === 'circle' || shape === 'coin') {
-        const cx = (x / (Nx - 1) - 0.5) * 2;
-        const cy = (y / (Ny - 1) - 0.5) * 2;
-        const dist = Math.sqrt(cx * cx + cy * cy);
-        if (dist > 1.0) return baseThickness;
-        if (shape === 'coin' && dist > 0.9) val = Math.max(val, 0.7);
-      }
-
-      return baseThickness + val * reliefHeight;
-    };
-
-    // 1. Topo
-    for (let y = 0; y < Ny; y++) {
-      for (let x = 0; x < Nx; x++) {
-        const posX = (x / (Nx - 1) - 0.5) * targetWidth;
-        const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const posZ = getTopZ(x, y);
-
-        positions.push(posX, posY, posZ);
-        uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
-      }
-    }
-
-    for (let y = 0; y < Ny - 1; y++) {
-      for (let x = 0; x < Nx - 1; x++) {
-        const i0 = y * Nx + x;
-        const i1 = y * Nx + (x + 1);
-        const i2 = (y + 1) * Nx + x;
-        const i3 = (y + 1) * Nx + (x + 1);
-
-        indices.push(i0, i1, i2);
-        indices.push(i1, i3, i2);
-      }
-    }
-
-    // 2. Base a Z=0
-    const bottomOffset = positions.length / 3;
-    for (let y = 0; y < Ny; y++) {
-      for (let x = 0; x < Nx; x++) {
-        const posX = (x / (Nx - 1) - 0.5) * targetWidth;
-        const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        positions.push(posX, posY, 0);
-        uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
-      }
-    }
-
-    for (let y = 0; y < Ny - 1; y++) {
-      for (let x = 0; x < Nx - 1; x++) {
-        const b0 = bottomOffset + (y * Nx + x);
-        const b1 = bottomOffset + (y * Nx + (x + 1));
-        const b2 = bottomOffset + ((y + 1) * Nx + x);
-        const b3 = bottomOffset + ((y + 1) * Nx + (x + 1));
-
-        indices.push(b0, b2, b1);
-        indices.push(b1, b2, b3);
-      }
-    }
-
-    // 3. Paredes de vedação
-    const addSideQuad = (topA, topB, botA, botB) => {
-      indices.push(topA, botA, topB);
-      indices.push(topB, botA, botB);
-    };
-
-    for (let x = 0; x < Nx - 1; x++) {
-      addSideQuad(x, x + 1, bottomOffset + x, bottomOffset + x + 1);
-      const sT = (Ny - 1) * Nx + x;
-      addSideQuad(sT + 1, sT, bottomOffset + sT + 1, bottomOffset + sT);
-    }
-    for (let y = 0; y < Ny - 1; y++) {
-      const wT = y * Nx;
-      const wNext = (y + 1) * Nx;
-      addSideQuad(wNext, wT, bottomOffset + wNext, bottomOffset + wT);
-      const eT = y * Nx + (Nx - 1);
-      const eNext = (y + 1) * Nx + (Nx - 1);
-      addSideQuad(eT, eNext, bottomOffset + eT, bottomOffset + eNext);
-    }
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-
-    return {
-      geometry,
-      dimensions: { width: targetWidth, depth: targetHeight, height: baseThickness + reliefHeight },
-      stats: { vertices: positions.length / 3, triangles: indices.length / 3, isManifold: true }
-    };
-  }
-
-  /**
-   * Escultura 360° Volumétrica Orgânica com Isolamento de Fundo
-   * Infla apenas o boneco/objeto em 360° (frente e verso arredondados)
-   */
-  static createVolumetric360(processedImage, options = {}) {
-    const {
-      targetWidth = 70,
-      maxThickness = 28,
+      targetHeight = 90, // Altura vertical em mm (Z)
+      depthRatio = 0.55, // Espessura frente-verso proporcional à largura
       smoothing = 2
     } = options;
 
-    const { width: Nx, height: Ny, depthMap: rawDepth, mask } = processedImage;
-    const targetHeight = targetWidth / (Nx / Ny);
+    const { width: W, height: H, mask, canvas } = processedImage;
+    const targetWidth = targetHeight * (W / H);
 
-    let depth = rawDepth;
-    if (smoothing > 0) {
-      depth = this.smoothDepthMap(rawDepth, Nx, Ny, smoothing);
-    }
-
-    // Campo de distância euclidiana da silhueta do personagem
-    const distField = new Float32Array(Nx * Ny);
-    const maxRadius = Math.min(Nx, Ny) / 4;
-
-    for (let y = 0; y < Ny; y++) {
-      for (let x = 0; x < Nx; x++) {
-        const idx = y * Nx + x;
-        if (mask[idx] === 0) continue;
-
-        let minDist = maxRadius;
-        const searchRange = Math.min(14, Math.floor(maxRadius));
-        for (let dy = -searchRange; dy <= searchRange; dy++) {
-          const ny = y + dy;
-          if (ny < 0 || ny >= Ny) continue;
-          for (let dx = -searchRange; dx <= searchRange; dx++) {
-            const nx = x + dx;
-            if (nx < 0 || nx >= Nx || mask[ny * Nx + nx] === 0) {
-              const d = Math.sqrt(dx * dx + dy * dy);
-              if (d < minDist) minDist = d;
-            }
-          }
-        }
-        distField[idx] = minDist / maxRadius;
-      }
-    }
+    const slices = 80;   // Resolução vertical (fatias dos pés à cabeça)
+    const segments = 40; // Resolução radial (360 graus ao redor do corpo)
 
     const positions = [];
     const uvs = [];
     const indices = [];
 
-    // Calcula espessura arredondada (frente e verso)
-    const getThickness = (x, y) => {
-      const idx = y * Nx + x;
-      if (mask[idx] === 0) return 0;
-      const df = distField[idx];
-      const localDetail = (1.0 - depth[idx]) * 0.3;
-      // Curva esférica suave
-      const dome = Math.sin(Math.min(1.0, df) * (Math.PI / 2));
-      return Math.max(0.1, (dome * 0.8 + localDetail) * (maxThickness / 2));
-    };
+    // 1. Extrair contornos horizontais (Xmin, Xmax) para cada fatia vertical
+    const sliceContours = [];
+    for (let s = 0; s < slices; s++) {
+      // Y na imagem: 0 é o topo da imagem (cabeça), H-1 é a base (pés)
+      // s=0 é o chão (pés), s=slices-1 é o topo da cabeça
+      const imgY = Math.round((1 - s / (slices - 1)) * (H - 1));
+      let minX = -1;
+      let maxX = -1;
 
-    // 1. Frente (+Z)
-    for (let y = 0; y < Ny; y++) {
-      for (let x = 0; x < Nx; x++) {
-        const posX = (x / (Nx - 1) - 0.5) * targetWidth;
-        const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const zThickness = getThickness(x, y);
-
-        positions.push(posX, posY, zThickness);
-        uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
-      }
-    }
-
-    for (let y = 0; y < Ny - 1; y++) {
-      for (let x = 0; x < Nx - 1; x++) {
-        const i0 = y * Nx + x;
-        const i1 = y * Nx + (x + 1);
-        const i2 = (y + 1) * Nx + x;
-        const i3 = (y + 1) * Nx + (x + 1);
-
-        // Apenas triangula onde houver primeiro plano
-        if (mask[i0] || mask[i1] || mask[i2] || mask[i3]) {
-          indices.push(i0, i1, i2);
-          indices.push(i1, i3, i2);
+      for (let x = 0; x < W; x++) {
+        if (mask[imgY * W + x] === 1) {
+          if (minX === -1) minX = x;
+          maxX = x;
         }
       }
+
+      sliceContours.push({ minX, maxX });
     }
 
-    // 2. Verso (-Z) para gerar o corpo 360° completo
-    const backOffset = positions.length / 3;
-    for (let y = 0; y < Ny; y++) {
-      for (let x = 0; x < Nx; x++) {
-        const posX = (x / (Nx - 1) - 0.5) * targetWidth;
-        const posY = (0.5 - y / (Ny - 1)) * targetHeight;
-        const zThickness = getThickness(x, y);
-
-        positions.push(posX, posY, -zThickness);
-        uvs.push(x / (Nx - 1), 1 - y / (Ny - 1));
-      }
-    }
-
-    for (let y = 0; y < Ny - 1; y++) {
-      for (let x = 0; x < Nx - 1; x++) {
-        const b0 = backOffset + (y * Nx + x);
-        const b1 = backOffset + (y * Nx + (x + 1));
-        const b2 = backOffset + ((y + 1) * Nx + x);
-        const b3 = backOffset + ((y + 1) * Nx + (x + 1));
-
-        if (mask[y * Nx + x] || mask[y * Nx + (x + 1)]) {
-          indices.push(b0, b2, b1);
-          indices.push(b1, b2, b3);
+    // Suavizar contornos para evitar transições bruscas
+    const smoothContours = [];
+    for (let s = 0; s < slices; s++) {
+      let sumMin = 0, sumMax = 0, count = 0;
+      for (let ds = -smoothing; ds <= smoothing; ds++) {
+        const ns = s + ds;
+        if (ns >= 0 && ns < slices && sliceContours[ns].minX !== -1) {
+          sumMin += sliceContours[ns].minX;
+          sumMax += sliceContours[ns].maxX;
+          count++;
         }
       }
+      if (count > 0) {
+        smoothContours.push({ minX: sumMin / count, maxX: sumMax / count });
+      } else {
+        smoothContours.push({ minX: -1, maxX: -1 });
+      }
+    }
+
+    // 2. Construir os anéis 3D verticais
+    for (let s = 0; s < slices; s++) {
+      const c = smoothContours[s];
+      const zPos = (s / (slices - 1)) * targetHeight; // Z é a altura em pé na mesa!
+
+      let ringWidth = 0;
+      let centerX = 0;
+
+      if (c.minX !== -1 && c.maxX >= c.minX) {
+        ringWidth = Math.max(4, ((c.maxX - c.minX) / W) * targetWidth);
+        centerX = (((c.minX + c.maxX) / 2) / W - 0.5) * targetWidth;
+      } else {
+        // Se a fatia estiver vazia, gera um raio mínimo no centro
+        ringWidth = 2;
+        centerX = 0;
+      }
+
+      const ringDepth = Math.max(3, ringWidth * depthRatio);
+
+      // Gerar vértices do anel ao redor do personagem
+      for (let seg = 0; seg <= segments; seg++) {
+        const theta = (seg / segments) * Math.PI * 2;
+        
+        // Elipse com leve variação orgânica
+        const xPos = centerX + (ringWidth / 2) * Math.sin(theta);
+        const yPos = (ringDepth / 2) * Math.cos(theta); // Y é a profundidade frente/verso
+
+        positions.push(xPos, yPos, zPos);
+
+        // UV: mapeia a foto na frente (cos(theta) > 0)
+        const u = Math.min(1, Math.max(0, 0.5 + 0.5 * Math.sin(theta)));
+        const v = s / (slices - 1);
+        uvs.push(u, v);
+      }
+    }
+
+    // 3. Conectar anéis verticais com triângulos
+    const ringStride = segments + 1;
+    for (let s = 0; s < slices - 1; s++) {
+      const r0 = s * ringStride;
+      const r1 = (s + 1) * ringStride;
+
+      for (let seg = 0; seg < segments; seg++) {
+        const i0 = r0 + seg;
+        const i1 = r0 + seg + 1;
+        const i2 = r1 + seg;
+        const i3 = r1 + seg + 1;
+
+        indices.push(i0, i2, i1);
+        indices.push(i1, i2, i3);
+      }
+    }
+
+    // 4. Fechar a base nos pés (Z = 0) para aderência total na mesa aquecida
+    const centerBotIdx = positions.length / 3;
+    positions.push(0, 0, 0);
+    uvs.push(0.5, 0);
+
+    for (let seg = 0; seg < segments; seg++) {
+      indices.push(centerBotIdx, seg, seg + 1);
+    }
+
+    // 5. Fechar o topo na cabeça
+    const centerTopIdx = positions.length / 3;
+    positions.push(0, 0, targetHeight);
+    uvs.push(0.5, 1);
+
+    const topOffset = (slices - 1) * ringStride;
+    for (let seg = 0; seg < segments; seg++) {
+      indices.push(centerTopIdx, topOffset + seg + 1, topOffset + seg);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -359,8 +236,16 @@ export class MeshGenerator {
 
     return {
       geometry,
-      dimensions: { width: targetWidth, depth: targetHeight, height: maxThickness },
-      stats: { vertices: positions.length / 3, triangles: indices.length / 3, isManifold: true }
+      dimensions: {
+        width: targetWidth,
+        depth: targetWidth * depthRatio,
+        height: targetHeight
+      },
+      stats: {
+        vertices: positions.length / 3,
+        triangles: indices.length / 3,
+        isManifold: true
+      }
     };
   }
 

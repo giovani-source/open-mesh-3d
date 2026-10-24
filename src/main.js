@@ -7,7 +7,7 @@ class StudioApp {
   constructor() {
     this.viewer = null;
     this.currentImage = null;
-    this.currentEngine = 'cloud_meshy'; // 'cloud_meshy', 'volumetric', 'relief'
+    this.currentImageSrc = null;
     this.isMultiView = false;
 
     this.multiImages = {
@@ -17,13 +17,9 @@ class StudioApp {
     };
 
     this.options = {
-      targetWidth: 80,
-      reliefHeight: 20,
-      baseThickness: 3,
-      resolution: 140,
-      smoothing: 2,
-      shape: 'rect',
-      invertDepth: false
+      targetHeight: 90, // mm (em pé no eixo Z)
+      depthRatio: 0.55, // proporção de volume frente/verso
+      smoothing: 2
     };
 
     this.init();
@@ -37,7 +33,6 @@ class StudioApp {
     this.bindDropzones();
     this.bindMultiSlots();
     this.bindPresets();
-    this.bindEngineTabs();
     this.bindSliders();
     this.bindToolbar();
     this.bindMaterials();
@@ -47,7 +42,7 @@ class StudioApp {
 
     this.updateApiKeyBadge();
 
-    // Load default sample
+    // Carrega o boneco inicial de exemplo em pé na mesa
     this.loadSampleImage('./samples/robot_toy.jpg');
   }
 
@@ -81,10 +76,6 @@ class StudioApp {
       multiBox.classList.remove('hidden');
       singleBox.classList.add('hidden');
       this.isMultiView = true;
-
-      // Ensure cloud engine is selected for multi-view
-      const cloudTab = document.querySelector('.engine-tab[data-engine="cloud_meshy"]');
-      if (cloudTab) cloudTab.click();
     });
   }
 
@@ -93,8 +84,9 @@ class StudioApp {
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       this.currentImage = img;
-      this.updateImagePreview(img.src);
-      this.generateLocalVolumetric();
+      this.currentImageSrc = url;
+      this.updateImagePreview(url);
+      this.generateUpright3DModel();
     };
     img.src = url;
   }
@@ -152,11 +144,12 @@ class StudioApp {
         this.updateImagePreview(e.target.result);
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
 
-        // Se for no motor cloud, executa ou avisa; caso contrário, gera local
-        if (this.currentEngine === 'cloud_meshy') {
+        // Se houver chave Meshy, tenta nuvem; senão gera o boneco em pé instantâneo
+        const key = CloudAIService.getStoredMeshyKey();
+        if (key) {
           this.triggerCloudGeneration();
         } else {
-          this.generateLocalVolumetric();
+          this.generateUpright3DModel();
         }
       };
       img.src = e.target.result;
@@ -195,9 +188,9 @@ class StudioApp {
 
   bindPresets() {
     const presets = {
-      robot: { url: './samples/robot_toy.jpg', engine: 'volumetric', width: 70, height: 28 },
-      dragon: { url: './samples/dragon_coin.jpg', engine: 'relief', width: 80, height: 8 },
-      statue: { url: './samples/statue_bust.jpg', engine: 'volumetric', width: 80, height: 32 }
+      robot: { url: './samples/robot_toy.jpg', height: 90 },
+      dragon: { url: './samples/dragon_coin.jpg', height: 80 },
+      statue: { url: './samples/statue_bust.jpg', height: 85 }
     };
 
     document.querySelectorAll('.preset-btn').forEach(btn => {
@@ -209,88 +202,92 @@ class StudioApp {
         document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
-        this.options.targetWidth = config.width;
-        document.getElementById('param-width').value = config.width;
-        document.getElementById('val-width').textContent = `${config.width} mm`;
-
-        this.options.reliefHeight = config.height;
+        this.options.targetHeight = config.height;
         document.getElementById('param-height').value = config.height;
         document.getElementById('val-height').textContent = `${config.height} mm`;
-
-        const targetTab = document.querySelector(`.engine-tab[data-engine="${config.engine}"]`);
-        if (targetTab) targetTab.click();
 
         this.loadSampleImage(config.url);
       });
     });
   }
 
-  bindEngineTabs() {
-    document.querySelectorAll('.engine-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.engine-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.currentEngine = tab.dataset.engine;
+  bindSliders() {
+    const heightSlider = document.getElementById('param-height');
+    const heightVal = document.getElementById('val-height');
+    heightSlider.addEventListener('input', () => {
+      this.options.targetHeight = parseFloat(heightSlider.value);
+      heightVal.textContent = `${this.options.targetHeight} mm`;
+    });
+    heightSlider.addEventListener('change', () => {
+      this.generateUpright3DModel();
+    });
 
-        const baseGroup = document.getElementById('group-base');
-        const smoothGroup = document.getElementById('group-smooth');
+    const depthSlider = document.getElementById('param-width');
+    const depthVal = document.getElementById('val-width');
+    depthSlider.addEventListener('input', () => {
+      this.options.depthRatio = parseFloat(depthSlider.value) / 100;
+      depthVal.textContent = `${Math.round(this.options.targetHeight * this.options.depthRatio)} mm`;
+    });
+    depthSlider.addEventListener('change', () => {
+      this.generateUpright3DModel();
+    });
 
-        if (this.currentEngine === 'relief') {
-          baseGroup.style.display = 'flex';
-          smoothGroup.style.display = 'flex';
-        } else if (this.currentEngine === 'volumetric') {
-          baseGroup.style.display = 'none';
-          smoothGroup.style.display = 'flex';
-        } else {
-          // cloud_meshy
-          baseGroup.style.display = 'none';
-          smoothGroup.style.display = 'none';
-        }
+    const smoothSlider = document.getElementById('param-smooth');
+    const smoothVal = document.getElementById('val-smooth');
+    smoothSlider.addEventListener('input', () => {
+      this.options.smoothing = parseInt(smoothSlider.value);
+      smoothVal.textContent = `Nível ${this.options.smoothing}`;
+    });
+    smoothSlider.addEventListener('change', () => {
+      this.generateUpright3DModel();
+    });
 
-        const genBtnText = document.getElementById('btn-generate-text');
-        if (this.currentEngine === 'cloud_meshy') {
-          genBtnText.textContent = 'Gerar Boneco 3D com IA Meshy';
-        } else {
-          genBtnText.textContent = 'Gerar Modelo 3D Agora';
-        }
-      });
+    document.getElementById('btn-generate').addEventListener('click', () => {
+      const key = CloudAIService.getStoredMeshyKey();
+      if (key) {
+        this.triggerCloudGeneration();
+      } else {
+        this.generateUpright3DModel();
+      }
     });
   }
 
-  bindSliders() {
-    const bindRange = (id, valId, unit, optKey, parseFn = parseFloat) => {
-      const slider = document.getElementById(id);
-      const valDisplay = document.getElementById(valId);
-      slider.addEventListener('input', () => {
-        const val = parseFn(slider.value);
-        this.options[optKey] = val;
-        valDisplay.textContent = `${val} ${unit}`;
-      });
-      slider.addEventListener('change', () => {
-        if (this.currentEngine !== 'cloud_meshy') {
-          this.generateLocalVolumetric();
-        }
-      });
-    };
+  /**
+   * Converte a imagem 2D em um Boneco 3D Volumétrico EM PÉ NA MESA
+   */
+  generateUpright3DModel() {
+    if (!this.currentImage) return;
 
-    bindRange('param-width', 'val-width', 'mm', 'targetWidth');
-    bindRange('param-height', 'val-height', 'mm', 'reliefHeight');
-    bindRange('param-base', 'val-base', 'mm', 'baseThickness');
-    bindRange('param-smooth', 'val-smooth', 'Nível', 'smoothing', parseInt);
+    const statusEl = document.getElementById('gen-status');
+    statusEl.textContent = 'Isolando personagem e gerando corpo 3D em pé...';
 
-    document.getElementById('btn-generate').addEventListener('click', () => {
-      if (this.currentEngine === 'cloud_meshy') {
-        this.triggerCloudGeneration();
-      } else {
-        this.generateLocalVolumetric();
-      }
+    const processed = MeshGenerator.getImageData(this.currentImage, 140);
+    this.viewer.setTextureFromCanvas(processed.canvas);
+
+    const result = MeshGenerator.createUprightFigurine(processed, {
+      targetHeight: this.options.targetHeight,
+      depthRatio: this.options.depthRatio || 0.55,
+      smoothing: this.options.smoothing
     });
+
+    this.viewer.setModel(result.geometry, result.dimensions);
+    const metrics = MeshGenerator.estimatePrintMetrics(result.geometry, 15);
+
+    document.getElementById('metric-x').textContent = `${result.dimensions.width.toFixed(1)} mm`;
+    document.getElementById('metric-y').textContent = `${result.dimensions.depth.toFixed(1)} mm`;
+    document.getElementById('metric-z').textContent = `${result.dimensions.height.toFixed(1)} mm`;
+    document.getElementById('metric-triangles').textContent = `${result.stats.triangles.toLocaleString()} tris`;
+    document.getElementById('metric-vol').textContent = `${metrics.volumeCm3} cm³`;
+    document.getElementById('metric-weight').textContent = `~${metrics.weightGrams} g`;
+    document.getElementById('metric-time').textContent = `~${metrics.printTimeString}`;
+
+    statusEl.textContent = `Boneco 3D em pé gerado com sucesso! (${result.stats.triangles.toLocaleString()} triângulos)`;
+    statusEl.style.color = '#34d399';
   }
 
   async triggerCloudGeneration() {
     const apiKey = CloudAIService.getStoredMeshyKey();
     if (!apiKey) {
-      // Abre modal para o usuário inserir chave gratuita
       document.getElementById('modal-api').classList.remove('hidden');
       return;
     }
@@ -321,75 +318,31 @@ class StudioApp {
         }
       );
 
-      // Carregar GLB no Three.js
       if (resultUrls && resultUrls.glb) {
-        progressMsg.textContent = 'Renderizando modelo 3D na mesa...';
+        progressMsg.textContent = 'Posicionando boneco 3D em pé na mesa...';
         const modelInfo = await this.viewer.loadGLBFromUrl(resultUrls.glb);
-        this.updateMetricsFromInfo(modelInfo);
-        statusText.textContent = `Boneco 3D gerado com sucesso! (${modelInfo.stats.triangles.toLocaleString()} polígonos)`;
+        
+        document.getElementById('metric-x').textContent = `${modelInfo.dimensions.width.toFixed(1)} mm`;
+        document.getElementById('metric-y').textContent = `${modelInfo.dimensions.depth.toFixed(1)} mm`;
+        document.getElementById('metric-z').textContent = `${modelInfo.dimensions.height.toFixed(1)} mm`;
+        document.getElementById('metric-triangles').textContent = `${modelInfo.stats.triangles.toLocaleString()} tris`;
+
+        const vol = (modelInfo.dimensions.width * modelInfo.dimensions.depth * modelInfo.dimensions.height * 0.45) / 1000;
+        const weight = vol * 1.24 * 0.35;
+        document.getElementById('metric-vol').textContent = `${vol.toFixed(1)} cm³`;
+        document.getElementById('metric-weight').textContent = `~${weight.toFixed(1)} g`;
+
+        statusText.textContent = `Boneco 3D gerado com sucesso via Meshy!`;
         statusText.style.color = '#34d399';
       }
     } catch (err) {
-      alert(`Erro na geração: ${err.message}`);
-      statusText.textContent = `Erro: ${err.message}`;
-      statusText.style.color = '#ef4444';
+      alert(`Aviso: ${err.message}. Gerando boneco 3D em pé localmente.`);
+      this.generateUpright3DModel();
     } finally {
       setTimeout(() => {
         progressWrap.classList.add('hidden');
       }, 2000);
     }
-  }
-
-  generateLocalVolumetric() {
-    if (!this.currentImage) return;
-
-    const statusEl = document.getElementById('gen-status');
-    statusEl.textContent = 'Processando geometria 3D...';
-
-    const processed = MeshGenerator.getImageData(this.currentImage, 140);
-    this.viewer.setTextureFromCanvas(processed.canvas);
-
-    let result;
-    if (this.currentEngine === 'relief') {
-      result = MeshGenerator.createWatertightRelief(processed, {
-        targetWidth: this.options.targetWidth,
-        reliefHeight: this.options.reliefHeight,
-        baseThickness: this.options.baseThickness,
-        smoothing: this.options.smoothing
-      });
-    } else {
-      // Escultura 360° com isolamento de silhueta (sem fundo quadrado!)
-      result = MeshGenerator.createVolumetric360(processed, {
-        targetWidth: this.options.targetWidth,
-        maxThickness: this.options.reliefHeight,
-        smoothing: this.options.smoothing
-      });
-    }
-
-    this.viewer.setModel(result.geometry, result.dimensions);
-    const metrics = MeshGenerator.estimatePrintMetrics(result.geometry, 15);
-
-    document.getElementById('metric-x').textContent = `${result.dimensions.width.toFixed(1)} mm`;
-    document.getElementById('metric-y').textContent = `${result.dimensions.depth.toFixed(1)} mm`;
-    document.getElementById('metric-z').textContent = `${result.dimensions.height.toFixed(1)} mm`;
-    document.getElementById('metric-triangles').textContent = `${result.stats.triangles.toLocaleString()} tris`;
-    document.getElementById('metric-vol').textContent = `${metrics.volumeCm3} cm³`;
-    document.getElementById('metric-weight').textContent = `~${metrics.weightGrams} g`;
-    document.getElementById('metric-time').textContent = `~${metrics.printTimeString}`;
-
-    statusEl.textContent = `Modelo gerado com sucesso (${result.stats.triangles.toLocaleString()} tris)`;
-  }
-
-  updateMetricsFromInfo(info) {
-    document.getElementById('metric-x').textContent = `${info.dimensions.width.toFixed(1)} mm`;
-    document.getElementById('metric-y').textContent = `${info.dimensions.depth.toFixed(1)} mm`;
-    document.getElementById('metric-z').textContent = `${info.dimensions.height.toFixed(1)} mm`;
-    document.getElementById('metric-triangles').textContent = `${info.stats.triangles.toLocaleString()} tris`;
-
-    const vol = (info.dimensions.width * info.dimensions.depth * info.dimensions.height * 0.45) / 1000;
-    const weight = vol * 1.24 * 0.35;
-    document.getElementById('metric-vol').textContent = `${vol.toFixed(1)} cm³`;
-    document.getElementById('metric-weight').textContent = `~${weight.toFixed(1)} g`;
   }
 
   bindToolbar() {
@@ -429,7 +382,7 @@ class StudioApp {
 
     document.getElementById('btn-export-stl-bin').addEventListener('click', () => {
       const res = this.viewer.exportSTL(`${getBaseName()}.stl`, true);
-      if (res) alert(`Arquivo STL baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB) pronto para o Slicer!`);
+      if (res) alert(`Modelo Aprovado! Arquivo STL baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB) pronto para fatiar no Bambu Studio ou Cura!`);
     });
 
     document.getElementById('btn-export-obj').addEventListener('click', () => {
@@ -467,7 +420,7 @@ class StudioApp {
       this.updateApiKeyBadge();
       apiModal.classList.add('hidden');
       if (keyInput.value.trim()) {
-        alert('Chave salva com sucesso no navegador! Agora ao clicar em Gerar, o modelo será gerado na nuvem.');
+        alert('Chave salva! Agora o boneco será gerado diretamente na nuvem da Meshy.');
       }
     });
   }
