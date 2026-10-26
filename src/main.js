@@ -49,8 +49,7 @@ class StudioApp {
         depthUrl: './samples/statue_bust_depth.png',
         glbUrl: null,
         height: 85,
-        depth: 32,
-        addPedestal: true,
+        depth: 36,
         mode: 'volumetric'
       },
       orange_bot: {
@@ -59,17 +58,15 @@ class StudioApp {
         fullSheetUrl: './samples/user_bots.png',
         glbUrl: null,
         height: 90,
-        depth: 18,
-        addPedestal: false,
+        depth: 24,
         mode: 'volumetric'
       },
       superman: {
         url: './samples/superman.png',
-        depthUrl: null,
+        depthUrl: './samples/superman_depth.png',
         glbUrl: null,
         height: 90,
-        depth: 15,
-        addPedestal: false,
+        depth: 24,
         mode: 'volumetric'
       },
       robot: {
@@ -77,8 +74,7 @@ class StudioApp {
         depthUrl: './samples/robot_toy_depth.png',
         glbUrl: null,
         height: 85,
-        depth: 18,
-        addPedestal: false,
+        depth: 26,
         mode: 'volumetric'
       },
       dragon: {
@@ -86,8 +82,7 @@ class StudioApp {
         depthUrl: null,
         glbUrl: null,
         height: 75,
-        depth: 12,
-        addPedestal: false,
+        depth: 14,
         mode: 'relief'
       }
     };
@@ -106,7 +101,6 @@ class StudioApp {
     this.options.targetHeight = config.height;
     this.options.maxDepth = config.depth;
     this.options.engineMode = config.mode;
-    this.options.addPedestal = config.addPedestal !== undefined ? config.addPedestal : false;
 
     const heightSlider = document.getElementById('param-height');
     if (heightSlider) {
@@ -117,10 +111,6 @@ class StudioApp {
     if (depthSlider) {
       depthSlider.value = config.depth;
       document.getElementById('val-depth').textContent = `${config.depth} mm`;
-    }
-    const pedestalCheck = document.getElementById('check-pedestal');
-    if (pedestalCheck) {
-      pedestalCheck.checked = this.options.addPedestal;
     }
 
     this.updateEngineTabsUI(config.mode);
@@ -303,20 +293,8 @@ class StudioApp {
       img.onload = () => {
         this.currentImage = img;
         this.currentImageSrc = e.target.result;
-        this.currentDepthImg = null;
         this.activeCropCanvas = null;
         this.activeCropSrc = e.target.result;
-
-        // Por padrão em desenhos e personagens enviados, sem pedestal artificial e proporção natural
-        this.options.addPedestal = false;
-        this.options.maxDepth = 16;
-        const pedestalCheck = document.getElementById('check-pedestal');
-        if (pedestalCheck) pedestalCheck.checked = false;
-        const depthSlider = document.getElementById('param-depth');
-        if (depthSlider) {
-          depthSlider.value = 16;
-          document.getElementById('val-depth').textContent = '16 mm';
-        }
 
         this.updateImagePreview(e.target.result);
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
