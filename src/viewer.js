@@ -4,6 +4,7 @@ import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { zipSync, strToU8 } from 'fflate';
 
 export class Viewer3D {
   constructor(containerElement) {
@@ -444,6 +445,91 @@ export class Viewer3D {
     URL.revokeObjectURL(link.href);
 
     return { sizeBytes: blob.size, isBinary };
+  }
+
+  export3MF(filename = 'boneco_3d.3mf') {
+    if (!this.modelGroup || this.modelGroup.children.length === 0) return null;
+
+    const verts = [];
+    const triLines = [];
+    let vertCount = 0;
+
+    this.modelGroup.updateMatrixWorld(true);
+
+    this.modelGroup.children.forEach(child => {
+      if (child !== this.wireframeMesh && child.visible) {
+        child.traverse(node => {
+          if (node.isMesh && node.geometry) {
+            const geo = node.geometry.index ? node.geometry.toNonIndexed() : node.geometry.clone();
+            const pos = geo.attributes.position;
+            const matrix = node.matrixWorld;
+
+            const v = new THREE.Vector3();
+            for (let i = 0; i < pos.count; i += 3) {
+              v.fromBufferAttribute(pos, i).applyMatrix4(matrix);
+              const v1x = v.x.toFixed(4), v1y = v.y.toFixed(4), v1z = v.z.toFixed(4);
+              v.fromBufferAttribute(pos, i + 1).applyMatrix4(matrix);
+              const v2x = v.x.toFixed(4), v2y = v.y.toFixed(4), v2z = v.z.toFixed(4);
+              v.fromBufferAttribute(pos, i + 2).applyMatrix4(matrix);
+              const v3x = v.x.toFixed(4), v3y = v.y.toFixed(4), v3z = v.z.toFixed(4);
+
+              verts.push(`<vertex x="${v1x}" y="${v1y}" z="${v1z}" />`);
+              verts.push(`<vertex x="${v2x}" y="${v2y}" z="${v2z}" />`);
+              verts.push(`<vertex x="${v3x}" y="${v3y}" z="${v3z}" />`);
+
+              triLines.push(`<triangle v1="${vertCount}" v2="${vertCount + 1}" v3="${vertCount + 2}" />`);
+              vertCount += 3;
+            }
+          }
+        });
+      }
+    });
+
+    const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
+</Types>`;
+
+    const rels = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
+</Relationships>`;
+
+    const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <metadata name="Title">Forge3D Model</metadata>
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          ${verts.join('\n          ')}
+        </vertices>
+        <triangles>
+          ${triLines.join('\n          ')}
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="1" />
+  </build>
+</model>`;
+
+    const zipData = zipSync({
+      '[Content_Types].xml': strToU8(contentTypes),
+      '_rels/.rels': strToU8(rels),
+      '3D/3dmodel.model': strToU8(modelXml)
+    });
+
+    const blob = new Blob([zipData], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename.endsWith('.3mf') ? filename : `${filename}.3mf`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    return { sizeBytes: blob.size, triangles: triLines.length };
   }
 
   exportOBJ(filename = 'boneco_3d.obj') {

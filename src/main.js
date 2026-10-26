@@ -563,10 +563,20 @@ class StudioApp {
   bindExports() {
     const getBaseName = () => `forge3d_escultura_${Date.now()}`;
 
+    const btn3mf = document.getElementById('btn-export-3mf');
+    if (btn3mf) {
+      btn3mf.addEventListener('click', () => {
+        const res = this.viewer.export3MF(`${getBaseName()}.3mf`);
+        if (res) {
+          alert(`Arquivo .3MF baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB)!\nCompatível diretamente com o botão "Abrir Projeto (3mf)" do Creality Print e Bambu Studio.`);
+        }
+      });
+    }
+
     document.getElementById('btn-export-stl-bin').addEventListener('click', () => {
       const res = this.viewer.exportSTL(`${getBaseName()}.stl`, true);
       if (res) {
-        alert(`Arquivo STL Binário baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB)!\nPronto para abrir diretamente no Bambu Studio, Cura ou PrusaSlicer.`);
+        alert(`Arquivo STL Binário baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB)!\nPronto para abrir diretamente no Creality Print, Bambu Studio, Cura ou PrusaSlicer.`);
       }
     });
 
