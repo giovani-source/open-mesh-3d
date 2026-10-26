@@ -42,10 +42,24 @@ class StudioApp {
       statusEl.textContent = 'Envie ou arraste qualquer imagem ou desenho no painel à esquerda para gerar seu modelo 3D.';
       statusEl.style.color = '#00f2fe';
     }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const sampleParam = urlParams.get('sample');
+    if (sampleParam && this.getPresets()[sampleParam]) {
+      this.loadPreset(sampleParam);
+    }
   }
 
   getPresets() {
     return {
+      batman: {
+        url: './samples/batman.jpeg',
+        depthUrl: null,
+        glbUrl: null,
+        height: 85,
+        depth: 36,
+        mode: 'volumetric'
+      },
       statue: {
         url: './samples/statue_bust.jpg',
         depthUrl: './samples/statue_bust_depth.png',
