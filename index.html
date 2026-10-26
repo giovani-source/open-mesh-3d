@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-BAMkrDfy.js"></script>
+    <script type="module" crossorigin src="./assets/index-BUS3Xyee.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-BO39TXQV.css">
   </head>
   <body>
@@ -83,27 +83,27 @@
 
             <!-- PRESET SAMPLES -->
             <div class="presets-row">
-              <span class="presets-label">Ou teste um exemplo rápido:</span>
+              <span class="presets-label">Exemplos rápidos com profundidade 3D:</span>
               <div class="preset-thumbnails">
-                <button class="preset-btn active" data-sample="orange_bot" title="Robozinho Laranja (Seu Desenho)">
+                <button class="preset-btn active" data-sample="statue" title="Busto de Escultura (Sócrates)">
+                  <img src="./samples/statue_bust.jpg" alt="Busto Sócrates" />
+                  <span>Busto Sócrates</span>
+                </button>
+                <button class="preset-btn" data-sample="orange_bot" title="Robozinho Laranja">
                   <img src="./samples/bot_front.png" alt="Robozinho" />
                   <span>Robozinho</span>
-                </button>
-                <button class="preset-btn" data-sample="superman" title="Superman (Herói)">
-                  <img src="./samples/superman.png" alt="Superman" />
-                  <span>Superman</span>
                 </button>
                 <button class="preset-btn" data-sample="robot" title="Mascote Robô 3D">
                   <img src="./samples/robot_toy.jpg" alt="Robô" />
                   <span>Robô</span>
                 </button>
+                <button class="preset-btn" data-sample="superman" title="Superman (Herói)">
+                  <img src="./samples/superman.png" alt="Superman" />
+                  <span>Superman</span>
+                </button>
                 <button class="preset-btn" data-sample="dragon" title="Moeda Dragão">
                   <img src="./samples/dragon_coin.jpg" alt="Moeda" />
                   <span>Medalha</span>
-                </button>
-                <button class="preset-btn" data-sample="statue" title="Busto de Escultura">
-                  <img src="./samples/statue_bust.jpg" alt="Escultura" />
-                  <span>Busto</span>
                 </button>
               </div>
             </div>
@@ -117,10 +117,10 @@
             <div class="engine-tabs">
               <button class="engine-tab active" data-engine="volumetric">
                 <div class="tab-badge-row">
-                  <span class="tab-title">Escultura 3D Orgânica (Sculptor3D)</span>
+                  <span class="tab-title">Escultura 3D Anatômica (Neural Depth)</span>
                   <span class="badge-star">RECOMENDADO</span>
                 </div>
-                <div class="tab-desc">Infla o desenho em 360° com curvaturas anatômicas e suavização contínua Laplaciana, livre de arestas e 100% pronta para o fatiador</div>
+                <div class="tab-desc">Modela anatomia real com nariz saliente, órbitas oculares recuadas, barba esculpida e base plana sólida para fatiadores (Creality / Bambu)</div>
               </button>
 
               <button class="engine-tab" data-engine="neural">
@@ -144,17 +144,17 @@
             <div class="param-group" id="group-height">
               <div class="param-header">
                 <label for="param-height">Altura da Peça em Pé (Z)</label>
-                <span id="val-height" class="param-val">90 mm</span>
+                <span id="val-height" class="param-val">85 mm</span>
               </div>
-              <input type="range" id="param-height" min="40" max="200" step="5" value="90" class="slider" />
+              <input type="range" id="param-height" min="40" max="200" step="5" value="85" class="slider" />
             </div>
 
             <div class="param-group" id="group-depth">
               <div class="param-header">
-                <label for="param-depth">Volume do Corpo / Profundidade (Y)</label>
-                <span id="val-depth" class="param-val">24 mm</span>
+                <label for="param-depth">Volume do Busto / Profundidade (Y)</label>
+                <span id="val-depth" class="param-val">36 mm</span>
               </div>
-              <input type="range" id="param-depth" min="10" max="50" step="1" value="24" class="slider" />
+              <input type="range" id="param-depth" min="15" max="80" step="1" value="36" class="slider" />
             </div>
 
             <div class="toggle-row" id="group-pedestal">
@@ -171,9 +171,9 @@
             <div class="param-group" id="group-detail" style="margin-top: 10px;">
               <div class="param-header">
                 <label for="param-detail">Relevo de Músculos / Dobras</label>
-                <span id="val-detail" class="param-val">Natural (1.2)</span>
+                <span id="val-detail" class="param-val">Natural (1.4)</span>
               </div>
-              <input type="range" id="param-detail" min="0" max="2.5" step="0.2" value="1.2" class="slider" />
+              <input type="range" id="param-detail" min="0" max="2.5" step="0.2" value="1.4" class="slider" />
             </div>
           </div>
 
