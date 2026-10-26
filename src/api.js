@@ -123,7 +123,7 @@ export class CloudAIService {
 
     onProgress({ stage: 'uploading', percent: 15, message: 'Enviando imagens para a nuvem da Meshy...' });
 
-    let endpoint = 'https://api.meshy.ai/v2/image-to-3d';
+    let endpoint = 'https://api.meshy.ai/openapi/v1/image-to-3d';
     let payload = {};
 
     if (isMultiView && (frontUrl || sideUrl || backUrl)) {
@@ -195,6 +195,11 @@ export class CloudAIService {
     }
 
     onProgress({ stage: 'downloading', percent: 98, message: 'Baixando modelo 3D para visualização na mesa...' });
-    return modelResult;
+    return {
+      glbUrl: modelResult?.glb,
+      stlUrl: modelResult?.stl,
+      objUrl: modelResult?.obj,
+      ...modelResult
+    };
   }
 }

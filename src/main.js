@@ -439,33 +439,54 @@ class StudioApp {
 
     const targetSrc = this.activeCropSrc || this.currentImageSrc;
 
-    // 1. MODO IA NEURAL (Tencent Hunyuan3D-2) - ALTA FIDELIDADE ESTILO MESHY AI
+    // 1. MODO IA GENERATIVA 360° (Meshy AI / Trellis)
     if (this.options.engineMode === 'neural') {
+      const meshyKey = CloudAIService.getStoredMeshyKey();
+
+      if (!meshyKey) {
+        const meshyModal = document.getElementById('modal-meshy');
+        if (meshyModal) meshyModal.classList.remove('hidden');
+        statusEl.textContent = 'Insira sua chave gratuita da Meshy AI (meshy.ai) para gerar anatomia 360° completa de personagens.';
+        statusEl.style.color = '#00f2fe';
+        return;
+      }
+
       this.isGenerating = true;
       btnGen.disabled = true;
       progressContainer.classList.remove('hidden');
       progressBar.style.width = '10%';
-      statusEl.textContent = 'Conectando ao cluster neural Hunyuan3D-2...';
+      statusEl.textContent = 'Enviando imagem para a IA da Meshy (OpenAPI v1)...';
       statusEl.style.color = '#00f2fe';
 
       try {
-        // Envia para a IA na nuvem (sem gastar RAM local nem requerer chave de API)
-        const result = await CloudAIService.generateWithHunyuan3D(targetSrc, (prog) => {
+        let dataUrl = targetSrc;
+        if (!dataUrl.startsWith('data:')) {
+          const imgElem = this.activeCropCanvas || this.currentImage;
+          const canvas = document.createElement('canvas');
+          canvas.width = imgElem.naturalWidth || imgElem.width || 512;
+          canvas.height = imgElem.naturalHeight || imgElem.height || 512;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(imgElem, 0, 0);
+          dataUrl = canvas.toDataURL('image/png');
+        }
+
+        const result = await CloudAIService.generateWithMeshy(meshyKey, {
+          imageUrl: dataUrl,
+          aiModel: 'meshy-4'
+        }, (prog) => {
           progressBar.style.width = `${prog.percent}%`;
           statusEl.textContent = prog.message;
         });
 
-        this.currentGLBUrl = result.glbUrl;
+        const glbUrl = result.glbUrl || result.glb;
+        if (!glbUrl) throw new Error('A IA da Meshy concluiu a tarefa, mas não retornou a URL do modelo 3D.');
 
-        // Prepara textura frontal a partir da imagem
-        const imgToTexture = this.activeCropCanvas || this.currentImage;
-        const processed = MeshGenerator.getImageData(imgToTexture, 180);
-        this.viewer.setTextureFromCanvas(processed.canvas);
+        this.currentGLBUrl = glbUrl;
 
-        statusEl.textContent = 'Posicionando modelo em pé na mesa aquecida (Z = 0)...';
+        statusEl.textContent = 'Posicionando modelo anatômico 360° em pé na mesa (Z = 0)...';
         progressBar.style.width = '96%';
 
-        const loadRes = await this.viewer.loadGLBFromUrl(result.glbUrl, {
+        const loadRes = await this.viewer.loadGLBFromUrl(glbUrl, {
           targetHeight: this.options.targetHeight,
           addPedestal: this.options.addPedestal
         });
@@ -475,18 +496,13 @@ class StudioApp {
         progressBar.style.width = '100%';
         setTimeout(() => progressContainer.classList.add('hidden'), 800);
 
-        statusEl.textContent = `Escultura 3D gerada com sucesso pela IA! (${loadRes.stats.triangles.toLocaleString()} polígonos orgânicos • 100% Manifold)`;
+        statusEl.textContent = `Modelo 360° gerado com sucesso pela Meshy AI! (${loadRes.stats.triangles.toLocaleString()} polígonos • 100% Manifold)`;
         statusEl.style.color = '#34d399';
       } catch (err) {
-        console.error('Falha na IA Neural:', err);
+        console.error('Falha na IA Meshy:', err);
         progressContainer.classList.add('hidden');
-        statusEl.textContent = `Falha na IA Neural: ${err.message}. Alternando para escultura local...`;
-        statusEl.style.color = '#f59e0b';
-
-        // Fallback suave para o motor local
-        this.options.engineMode = 'volumetric';
-        this.updateEngineTabsUI('volumetric');
-        this.generateLocalModel();
+        statusEl.textContent = `Erro na Meshy AI: ${err.message}.`;
+        statusEl.style.color = '#f87171';
       } finally {
         this.isGenerating = false;
         btnGen.disabled = false;
@@ -615,15 +631,58 @@ class StudioApp {
 
   bindModals() {
     const guideModal = document.getElementById('modal-guide');
-    document.getElementById('btn-open-guide').addEventListener('click', () => {
-      guideModal.classList.remove('hidden');
-    });
-    document.getElementById('btn-close-guide').addEventListener('click', () => {
-      guideModal.classList.add('hidden');
-    });
-    document.getElementById('btn-ok-guide').addEventListener('click', () => {
-      guideModal.classList.add('hidden');
-    });
+    const btnOpenGuide = document.getElementById('btn-open-guide');
+    const btnCloseGuide = document.getElementById('btn-close-guide');
+    const btnOkGuide = document.getElementById('btn-ok-guide');
+
+    if (btnOpenGuide && guideModal) {
+      btnOpenGuide.addEventListener('click', () => guideModal.classList.remove('hidden'));
+    }
+    if (btnCloseGuide && guideModal) {
+      btnCloseGuide.addEventListener('click', () => guideModal.classList.add('hidden'));
+    }
+    if (btnOkGuide && guideModal) {
+      btnOkGuide.addEventListener('click', () => guideModal.classList.add('hidden'));
+    }
+
+    // Modal Conectar Meshy AI
+    const meshyModal = document.getElementById('modal-meshy');
+    const btnOpenMeshy = document.getElementById('btn-open-meshy');
+    const btnCloseMeshy = document.getElementById('btn-close-meshy');
+    const btnCancelMeshy = document.getElementById('btn-cancel-meshy');
+    const btnSaveMeshy = document.getElementById('btn-save-meshy');
+    const inputMeshyKey = document.getElementById('input-meshy-key');
+
+    const openMeshy = () => {
+      if (inputMeshyKey) {
+        inputMeshyKey.value = CloudAIService.getStoredMeshyKey();
+      }
+      if (meshyModal) meshyModal.classList.remove('hidden');
+    };
+
+    const closeMeshy = () => {
+      if (meshyModal) meshyModal.classList.add('hidden');
+    };
+
+    if (btnOpenMeshy) btnOpenMeshy.addEventListener('click', openMeshy);
+    if (btnCloseMeshy) btnCloseMeshy.addEventListener('click', closeMeshy);
+    if (btnCancelMeshy) btnCancelMeshy.addEventListener('click', closeMeshy);
+
+    if (btnSaveMeshy && inputMeshyKey) {
+      btnSaveMeshy.addEventListener('click', () => {
+        const key = inputMeshyKey.value.trim();
+        CloudAIService.setStoredMeshyKey(key);
+        closeMeshy();
+        if (key) {
+          alert('Chave da Meshy AI salva com sucesso!\nAgora ao clicar em "Gerar Modelo 3D" ou selecionar a aba "IA Generativa 360°", a modelagem anatômica 360° será executada.');
+          this.options.engineMode = 'neural';
+          this.updateEngineTabsUI('neural');
+          this.generate3DModel();
+        } else {
+          alert('Chave removida. O sistema usará o motor nativo local de escultura.');
+        }
+      });
+    }
   }
 }
 

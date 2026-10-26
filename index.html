@@ -31,9 +31,13 @@
         </div>
 
         <div class="header-actions">
+          <button id="btn-open-meshy" class="btn-ghost" title="Conectar IA Generativa da Meshy para modelagem 360°">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+            Conectar Meshy AI
+          </button>
           <div class="header-badge-status">
             <span class="status-dot-active"></span>
-            <span>Motor Volumétrico Ativo</span>
+            <span>Motor 3D Ativo</span>
           </div>
           <button id="btn-open-guide" class="btn-ghost">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
@@ -122,8 +126,8 @@
               </button>
 
               <button class="engine-tab" data-engine="neural">
-                <div class="tab-title">IA Neural na Nuvem (Hunyuan3D / Trellis)</div>
-                <div class="tab-desc">Reconstrução por difusão volumétrica em cluster neural (ZeroGPU / API Meshy)</div>
+                <div class="tab-title">IA Generativa 360° Real (Meshy AI / Trellis)</div>
+                <div class="tab-desc">Modela anatomia 360° real a partir de qualquer desenho com pernas, braços e costas completas (Meshy AI)</div>
               </button>
 
               <button class="engine-tab" data-engine="relief">
@@ -360,6 +364,35 @@
           </div>
           <div class="modal-footer">
             <button class="btn-primary" id="btn-ok-guide">Entendido</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL: CONECTAR MESHY AI -->
+      <div id="modal-meshy" class="modal-backdrop hidden">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <h3>Conectar IA Generativa 360° (Meshy AI)</h3>
+            <button class="btn-close-modal" id="btn-close-meshy">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p>A <strong>Meshy AI</strong> é a inteligência artificial que transforma ilustrações e desenhos 2D em <strong>modelos 3D 360° reais</strong> (com costas, pernas, braços e anatomia tridimensional completa pronta para impressão 3D).</p>
+            
+            <div style="margin: 16px 0;">
+              <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #a5f3fc;">Sua Chave de API da Meshy (Gratuita):</label>
+              <input type="password" id="input-meshy-key" placeholder="Cole sua chave aqui (msy_...)" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(0, 242, 254, 0.3); background: #0b1329; color: #fff; font-family: monospace;" />
+              <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">
+                Não tem uma chave? Crie uma conta gratuita em <a href="https://www.meshy.ai/" target="_blank" style="color: #00f2fe; text-decoration: underline;">meshy.ai</a> e copie sua API Key no painel (200 créditos grátis por mês).
+              </div>
+            </div>
+
+            <div style="background: rgba(0, 242, 254, 0.05); border: 1px solid rgba(0, 242, 254, 0.15); border-radius: 8px; padding: 12px; font-size: 13px; color: #cbd5e1;">
+              💡 <strong>Como funciona:</strong> Ao salvar sua chave, qualquer desenho de personagem que você enviar será processado pela IA da Meshy para criar o modelo 3D volumétrico real em 360° e já exportar em .STL para o Creality Print.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-ghost" id="btn-cancel-meshy">Fechar</button>
+            <button class="btn-primary" id="btn-save-meshy">Salvar Chave da IA</button>
           </div>
         </div>
       </div>

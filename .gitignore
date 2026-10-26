@@ -26,3 +26,4 @@ test_*.js
 export_final_bust.js
 socrates_depth.png
 *.stl
+.vercel
