@@ -12,7 +12,7 @@ export class Viewer3D {
     this.currentMesh = null;
     this.currentModel = null;
     this.currentTexture = null;
-    this.materialMode = 'clay';
+    this.materialMode = 'texture';
     this.wireframeVisible = false;
     this.bedVisible = true;
     this.gltfLoader = new GLTFLoader();
@@ -336,48 +336,70 @@ export class Viewer3D {
 
 
   getMaterial(mode) {
+    const bumpMap = this.currentTexture || null;
+
     switch (mode) {
       case 'texture':
         return new THREE.MeshStandardMaterial({
           map: this.currentTexture || null,
+          bumpMap: bumpMap,
+          bumpScale: 0.08,
           color: this.currentTexture ? 0xffffff : 0x00d2d3,
           roughness: 0.45,
-          metalness: 0.15
+          metalness: 0.12,
+          side: THREE.DoubleSide
         });
 
       case 'clay':
         return new THREE.MeshStandardMaterial({
-          color: 0xecf0f1,
-          roughness: 0.55,
-          metalness: 0.08
+          color: 0xf0f2f5,
+          bumpMap: bumpMap,
+          bumpScale: 0.12,
+          roughness: 0.50,
+          metalness: 0.06,
+          side: THREE.DoubleSide
         });
 
       case 'pla_gold':
         return new THREE.MeshStandardMaterial({
           color: 0xd4af37,
+          bumpMap: bumpMap,
+          bumpScale: 0.10,
           roughness: 0.25,
-          metalness: 0.85
+          metalness: 0.85,
+          side: THREE.DoubleSide
         });
 
       case 'pla_silver':
         return new THREE.MeshStandardMaterial({
           color: 0xdcdde1,
+          bumpMap: bumpMap,
+          bumpScale: 0.10,
           roughness: 0.2,
-          metalness: 0.9
+          metalness: 0.9,
+          side: THREE.DoubleSide
         });
 
       case 'pla_stealth':
         return new THREE.MeshStandardMaterial({
           color: 0x1e272e,
+          bumpMap: bumpMap,
+          bumpScale: 0.12,
           roughness: 0.85,
-          metalness: 0.05
+          metalness: 0.05,
+          side: THREE.DoubleSide
         });
 
       case 'normals':
-        return new THREE.MeshNormalMaterial();
+        return new THREE.MeshNormalMaterial({
+          side: THREE.DoubleSide
+        });
 
       default:
-        return new THREE.MeshStandardMaterial({ color: 0x4bcffa });
+        return new THREE.MeshStandardMaterial({
+          color: 0x4bcffa,
+          side: THREE.DoubleSide
+        });
     }
   }
 

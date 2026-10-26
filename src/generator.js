@@ -294,17 +294,41 @@ export class MeshGenerator {
       }
     }
 
-    // Relevo facial de alta precisão (diferença entre profundidade local e curvatura craniana)
+    // Relevo de alta precisão (diferença entre profundidade local/traços e curvatura de base)
     const reliefMap = new Float32Array(width * height);
     for (let i = 0; i < width * height; i++) {
       if (mask[i] === 1) {
-        reliefMap[i] = smoothNeural[i] - cranialBaseline[i];
+        if (depthRawData) {
+          reliefMap[i] = smoothNeural[i] - cranialBaseline[i];
+        } else {
+          // Para ilustrações e desenhos 2D sem mapa neural:
+          // Isola os traços de tinta, músculos, emblemas e feições faciais com alta nitidez
+          const lumVal = depthMap[i];
+          const baseLum = cranialBaseline[i] / 255;
+          reliefMap[i] = (lumVal - baseLum) * 6.5;
+        }
+      }
+    }
+
+    // Resolver pontos de sela diagonais na máscara para garantir malha 100% manifold
+    for (let y = 0; y < height - 1; y++) {
+      for (let x = 0; x < width - 1; x++) {
+        const i00 = mask[y * width + x];
+        const i10 = mask[y * width + (x + 1)];
+        const i01 = mask[(y + 1) * width + x];
+        const i11 = mask[(y + 1) * width + (x + 1)];
+        if (i00 === 1 && i11 === 1 && i10 === 0 && i01 === 0) {
+          mask[y * width + (x + 1)] = 1;
+        } else if (i10 === 1 && i01 === 1 && i00 === 0 && i11 === 0) {
+          mask[y * width + x] = 1;
+        }
       }
     }
 
     return {
       width,
       height,
+      data,
       depthMap,
       neuralDepthMap,
       smoothNeural,
@@ -681,7 +705,7 @@ export class MeshGenerator {
       pedestalHeight = 4.0   // mm
     } = options;
 
-    const { width: W, height: H, mask, depthMap, neuralDepthMap, reliefMap, bounds } = processedImage;
+    const { width: W, height: H, data, mask, depthMap, neuralDepthMap, reliefMap, bounds } = processedImage;
 
     const { minX, maxX, minY, maxY } = bounds;
     const charW = Math.max(1, maxX - minX);
@@ -733,6 +757,10 @@ export class MeshGenerator {
     const zBaseOffset = addPedestal ? 2.0 : 0;
     const usableHeight = targetHeight - zBaseOffset;
 
+    const minSolidFront = 3.8;
+    const minSolidBack = 3.2;
+    const charCenterX = (minX + maxX) / 2;
+
     // 1. Vértices da Frente (Anatomia Tridimensional Contínua: Nariz Saliente, Órbitas Recuadas, Barba)
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -746,20 +774,32 @@ export class MeshGenerator {
         const bottomZone = Math.max(4, Math.round(charH * 0.12));
         const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
 
-        const edgeT = Math.min(1.0, dNorm * 3.5);
-        const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
-        const edgeFade = edgeFadeRaw * (1.0 - baseBlend) + 1.0 * baseBlend;
-
         // Volume anatômico contínuo do crânio, pescoço e tórax
         const baseDome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
         const baseVolume = baseDome * (maxDepth * 0.52);
 
         // Geometria da base sólida na mesa de impressão (sem afinar para lâmina)
         const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
+        const centerDist = Math.abs(x - charCenterX) / Math.max(1, bottomSpan);
         const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
         const solidBaseFront = (maxDepth * 0.50) * Math.max(0.35, lateralFade);
-        const solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
+
+        // Detalhes anatômicos e semânticos extraídos dos traços originais da imagem
+        let featureDisp = 0;
+        if (data) {
+          const r = data[idx * 4], g = data[idx * 4 + 1], b = data[idx * 4 + 2];
+          const isBelt = (r > 150 && g > 110 && b < 80 && (r - b) > 40);
+          const isCape = (b > r + 15 && b > g + 10 && b > 50);
+          const isSkin = (r > 180 && g > 130 && b > 90 && r > b + 30);
+          const isInk = (r < 55 && g < 55 && b < 55);
+          const isChestEmblem = isInk && (y >= minY + charH * 0.20 && y <= minY + charH * 0.44) && (Math.abs(x - charCenterX) < charW * 0.28);
+
+          if (isBelt) featureDisp += 2.6;
+          else if (isChestEmblem) featureDisp += 1.8;
+          else if (isSkin) featureDisp += 1.8;
+          else if (isInk) featureDisp -= 1.4;
+          else if (isCape) featureDisp -= 2.2;
+        }
 
         // Relevo de Alta Precisão (Nose +11.8, Bochechas +4.9, Órbitas -3.5, Barba, Dobras de Toga)
         const highpass = reliefMap ? reliefMap[idx] : 0;
@@ -768,8 +808,12 @@ export class MeshGenerator {
         // Microrrelevo de escultura em pedra / rugas / textura a partir da luminância
         const stoneDetail = ((depthMap ? depthMap[idx] : 0.5) - 0.5) * 1.8 * depthDetail;
 
+        const totalFeatureDisplacement = featureDisp * depthDetail + sculptProjection * (1.0 - baseBlend) + stoneDetail;
+
         const effVolumeFront = baseVolume * (1.0 - baseBlend) + solidBaseFront * baseBlend;
-        const frontThickness = Math.max(1.0, (effVolumeFront + sculptProjection * (1.0 - baseBlend) + stoneDetail) * edgeFade);
+        // Borda suave chanfrada/arredondada sem afinar para lâmina ou deixar oco
+        const bodyRoll = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.5;
+        const frontThickness = Math.max(minSolidFront, minSolidFront + (effVolumeFront - minSolidFront) * bodyRoll + totalFeatureDisplacement * (1.0 - baseBlend * 0.5));
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = -frontThickness;
@@ -793,18 +837,15 @@ export class MeshGenerator {
         const bottomZone = Math.max(4, Math.round(charH * 0.12));
         const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
 
-        const edgeT = Math.min(1.0, dNorm * 3.5);
-        const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
-        const edgeFade = edgeFadeRaw * (1.0 - baseBlend) + 1.0 * baseBlend;
-
         const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
+        const centerDist = Math.abs(x - charCenterX) / Math.max(1, bottomSpan);
         const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
         const solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
 
         const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
         const effVolumeBack = (dome * (maxDepth * 0.44)) * (1.0 - baseBlend) + solidBaseBack * baseBlend;
-        const backThickness = Math.max(1.0, effVolumeBack * edgeFade);
+        const bodyRoll = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.5;
+        const backThickness = Math.max(minSolidBack, minSolidBack + (effVolumeBack - minSolidBack) * bodyRoll);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = +backThickness;
