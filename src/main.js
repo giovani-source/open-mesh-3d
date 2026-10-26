@@ -465,15 +465,18 @@ class StudioApp {
 
     const targetSrc = this.activeCropSrc || this.currentImageSrc;
 
-    // 1. MODO IA GENERATIVA 360° (Meshy AI / Trellis)
+    // 1. MODO ESCULTURA 360° / IA GENERATIVA
     if (this.options.engineMode === 'neural') {
-      const meshyKey = CloudAIService.getStoredMeshyKey();
+      if (this.currentModelUrl) {
+        this.loadPrecomputedModel(this.currentModelUrl);
+        return;
+      }
 
+      const meshyKey = CloudAIService.getStoredMeshyKey();
       if (!meshyKey) {
-        const meshyModal = document.getElementById('modal-meshy');
-        if (meshyModal) meshyModal.classList.remove('hidden');
-        statusEl.textContent = 'Insira sua chave gratuita da Meshy AI (meshy.ai) para gerar anatomia 360° completa de personagens.';
-        statusEl.style.color = '#00f2fe';
+        // Sem necessidade de chave: gera escultura volumétrica 360° de forma nativa e gratuita!
+        this.options.backStyle = 'dome';
+        this.generateLocalModel(targetSrc);
         return;
       }
 
@@ -670,45 +673,6 @@ class StudioApp {
     }
     if (btnOkGuide && guideModal) {
       btnOkGuide.addEventListener('click', () => guideModal.classList.add('hidden'));
-    }
-
-    // Modal Conectar Meshy AI
-    const meshyModal = document.getElementById('modal-meshy');
-    const btnOpenMeshy = document.getElementById('btn-open-meshy');
-    const btnCloseMeshy = document.getElementById('btn-close-meshy');
-    const btnCancelMeshy = document.getElementById('btn-cancel-meshy');
-    const btnSaveMeshy = document.getElementById('btn-save-meshy');
-    const inputMeshyKey = document.getElementById('input-meshy-key');
-
-    const openMeshy = () => {
-      if (inputMeshyKey) {
-        inputMeshyKey.value = CloudAIService.getStoredMeshyKey();
-      }
-      if (meshyModal) meshyModal.classList.remove('hidden');
-    };
-
-    const closeMeshy = () => {
-      if (meshyModal) meshyModal.classList.add('hidden');
-    };
-
-    if (btnOpenMeshy) btnOpenMeshy.addEventListener('click', openMeshy);
-    if (btnCloseMeshy) btnCloseMeshy.addEventListener('click', closeMeshy);
-    if (btnCancelMeshy) btnCancelMeshy.addEventListener('click', closeMeshy);
-
-    if (btnSaveMeshy && inputMeshyKey) {
-      btnSaveMeshy.addEventListener('click', () => {
-        const key = inputMeshyKey.value.trim();
-        CloudAIService.setStoredMeshyKey(key);
-        closeMeshy();
-        if (key) {
-          alert('Chave da Meshy AI salva com sucesso!\nAgora ao clicar em "Gerar Modelo 3D" ou selecionar a aba "IA Generativa 360°", a modelagem anatômica 360° será executada.');
-          this.options.engineMode = 'neural';
-          this.updateEngineTabsUI('neural');
-          this.generate3DModel();
-        } else {
-          alert('Chave removida. O sistema usará o motor nativo local de escultura.');
-        }
-      });
     }
   }
 }

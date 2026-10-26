@@ -809,32 +809,35 @@ export class MeshGenerator {
     // Espessura sólida uniforme de base (garante rigidez mecânica na impressão 3D)
     const baseThickness = Math.max(3.5, maxDepth * 0.35);
 
-    // 2. Vértices da Frente (Relevo Anatômico Suave, Orgânico e Liso)
+    // 2. Vértices da Frente e do Verso (Escultura 3D Volumétrica Real)
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
         if (mask[idx] === 0) continue;
 
         const dNorm = Math.min(1.0, dt[idx] / maxDist);
-        // Curvatura anatômica orgânica contínua
+        const profile = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.65;
         const bodyCurve = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2)) ** 0.55;
-
         const featureRelief = smoothFeat[idx] * depthDetail;
-        const frontThickness = baseThickness + bodyCurve * (maxDepth * 0.55) + featureRelief;
+
+        let frontY = 0;
+        if (backStyle === 'dome') {
+          // Modelagem 3D 360° Real: membros e corpo arredondados em 3D contínuo sem paredes verticais
+          const organicRadius = (maxDepth * 0.5) * profile;
+          frontY = -(organicRadius + featureRelief * profile);
+        } else {
+          frontY = -(baseThickness + bodyCurve * (maxDepth * 0.55) + featureRelief);
+        }
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        const yPos = -frontThickness;
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
-        positions.push(xPos, yPos, Math.max(0, zPos));
+        positions.push(xPos, frontY, Math.max(0, zPos));
         uvs.push(x / (W - 1), 1.0 - y / (H - 1));
       }
     }
 
     // 3. Vértices do Verso
-    // Se backStyle === 'flat': TRASEIRA PLANA E LIMPA! (y = 0)
-    // Sem estufar pra trás, sem barriga, sem bolha bizarra!
-    // Se backStyle === 'dome': arredondamento suave e simétrico
     const backOffset = totalFgPixels;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -844,17 +847,16 @@ export class MeshGenerator {
         let backY = 0;
         if (backStyle === 'dome') {
           const dNorm = Math.min(1.0, dt[idx] / maxDist);
-          const bodyCurve = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2)) ** 0.55;
-          backY = (baseThickness * 0.35) + bodyCurve * (maxDepth * 0.25);
+          const profile = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.65;
+          backY = (maxDepth * 0.48) * profile;
         } else {
-          backY = 0; // Traseira 100% plana para deitar na mesa da impressora 3D!
+          backY = 0; // Traseira 100% plana para deitar na mesa da impressora 3D
         }
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        const yPos = +backY;
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
-        positions.push(xPos, yPos, Math.max(0, zPos));
+        positions.push(xPos, +backY, Math.max(0, zPos));
         uvs.push(1.0 - x / (W - 1), 1.0 - y / (H - 1));
       }
     }
