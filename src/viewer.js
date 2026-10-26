@@ -465,18 +465,17 @@ export class Viewer3D {
   }
 
   export3MF(filename = 'boneco_3d.3mf') {
-    if (!this.modelGroup || this.modelGroup.children.length === 0) return null;
+    const targetObj = this.currentMesh || this.currentModel;
+    if (!targetObj) return null;
 
     const verts = [];
     const triLines = [];
     let vertCount = 0;
 
-    this.modelGroup.updateMatrixWorld(true);
+    targetObj.updateMatrixWorld(true);
 
-    this.modelGroup.children.forEach(child => {
-      if (child !== this.wireframeMesh && child.visible) {
-        child.traverse(node => {
-          if (node.isMesh && node.geometry) {
+    targetObj.traverse(node => {
+      if (node.isMesh && node.geometry) {
             const geo = node.geometry.index ? node.geometry.toNonIndexed() : node.geometry.clone();
             const pos = geo.attributes.position;
             const matrix = node.matrixWorld;
@@ -499,8 +498,6 @@ export class Viewer3D {
             }
           }
         });
-      }
-    });
 
     const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">

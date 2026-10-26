@@ -883,6 +883,13 @@ export class MeshGenerator {
       this.applyLaplacianSmoothing(positions, indices, smoothness, 0.35);
     }
 
+    // Se traseira plana, garante planicidade matemática absoluta (y = 0) para assentamento perfeito na mesa do fatiador
+    if (backStyle === 'flat') {
+      for (let i = backOffset; i < backOffset + totalFgPixels; i++) {
+        positions[i * 3 + 1] = 0;
+      }
+    }
+
     // 5. Pedestal Sólido Chanfrado Integrado para a Mesa Aquecida (Z = 0 a Z = pedestalHeight)
     // Com sobreposição volumétrica estanque no pé do busto (eliminando frestas no fatiador)
     if (addPedestal) {
