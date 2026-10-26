@@ -56,10 +56,10 @@ class StudioApp {
       batman: {
         url: './samples/batman.jpeg',
         depthUrl: null,
-        glbUrl: null,
+        modelUrl: './samples/batman_sculpture.stl',
         height: 85,
-        depth: 18,
-        mode: 'volumetric'
+        depth: 35.5,
+        mode: 'neural'
       },
       statue: {
         url: './samples/statue_bust.jpg',
@@ -141,8 +141,8 @@ class StudioApp {
       this.updateImagePreview(config.url);
       this.detectPoses(this.currentImage);
 
-      if (config.glbUrl) {
-        this.loadPrecomputedGLB(config.glbUrl);
+      if (config.modelUrl || config.glbUrl) {
+        this.loadPrecomputedModel(config.modelUrl || config.glbUrl);
       } else {
         this.generate3DModel();
       }
@@ -173,10 +173,12 @@ class StudioApp {
     img.src = config.url;
   }
 
-  async loadPrecomputedGLB(glbUrl) {
+  async loadPrecomputedModel(modelUrl) {
     const statusEl = document.getElementById('gen-status');
-    statusEl.textContent = 'Carregando modelo 3D volumétrico de alta fidelidade...';
+    statusEl.textContent = 'Carregando escultura 3D completa em 3 dimensões (360°)...';
     statusEl.style.color = '#00f2fe';
+
+    this.currentModelUrl = modelUrl;
 
     try {
       if (this.currentImage) {
@@ -184,18 +186,22 @@ class StudioApp {
         this.viewer.setTextureFromCanvas(processed.canvas);
       }
 
-      const res = await this.viewer.loadGLBFromUrl(glbUrl, {
+      const res = await this.viewer.loadModelFromUrl(modelUrl, {
         targetHeight: this.options.targetHeight,
         addPedestal: this.options.addPedestal
       });
 
       this.updateMetricsUI(res.dimensions, res.stats);
-      statusEl.textContent = `Modelo 3D pronto! (${res.stats.triangles.toLocaleString()} polígonos orgânicos • 100% Manifold)`;
+      statusEl.textContent = `Escultura 3D 360° pronta! (${res.stats.triangles.toLocaleString()} polígonos • 100% Manifold)`;
       statusEl.style.color = '#34d399';
     } catch (err) {
-      console.warn('Erro ao carregar GLB pré-computado, gerando localmente:', err);
+      console.warn('Erro ao carregar modelo pré-computado, gerando localmente:', err);
       this.generate3DModel();
     }
+  }
+
+  async loadPrecomputedGLB(glbUrl) {
+    return this.loadPrecomputedModel(glbUrl);
   }
 
   detectPoses(img) {
@@ -435,9 +441,9 @@ class StudioApp {
   }
 
   reapplyScaleAndPedestal() {
-    if (this.viewer.currentModel) {
-      // Se já temos a malha 3D, reescala e atualiza o pedestal sem precisar reconectar à nuvem
-      this.viewer.loadGLBFromUrl(this.currentGLBUrl || './samples/bot_generated.glb', {
+    const activeUrl = this.currentModelUrl || this.currentGLBUrl;
+    if (activeUrl) {
+      this.viewer.loadModelFromUrl(activeUrl, {
         targetHeight: this.options.targetHeight,
         addPedestal: this.options.addPedestal
       }).then(res => {

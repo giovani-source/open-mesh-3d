@@ -4,6 +4,7 @@ import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { zipSync, strToU8 } from 'fflate';
 
 export class Viewer3D {
@@ -16,6 +17,7 @@ export class Viewer3D {
     this.wireframeVisible = false;
     this.bedVisible = true;
     this.gltfLoader = new GLTFLoader();
+    this.stlLoader = new STLLoader();
 
     this.initScene();
     this.initLights();
@@ -334,6 +336,87 @@ export class Viewer3D {
     });
   }
 
+  async loadSTLFromUrl(url, options = {}) {
+    const { targetHeight = 85, addPedestal = false } = options;
+
+    return new Promise((resolve, reject) => {
+      this.stlLoader.load(
+        url,
+        (geometry) => {
+          while (this.modelGroup.children.length > 0) {
+            const obj = this.modelGroup.children[0];
+            if (obj.geometry) obj.geometry.dispose();
+            this.modelGroup.remove(obj);
+          }
+          this.pedestalMesh = null;
+          this.wireframeMesh = null;
+
+          geometry.computeVertexNormals();
+
+          // Calcular limites e dimensões
+          geometry.computeBoundingBox();
+          const bbox = geometry.boundingBox;
+          const size = new THREE.Vector3();
+          bbox.getSize(size);
+
+          const maxDim = size.z > 0 ? size.z : Math.max(size.x, size.y);
+          const scale = maxDim > 0 ? targetHeight / maxDim : 1;
+          geometry.scale(scale, scale, scale);
+
+          geometry.computeBoundingBox();
+          const scaledBox = geometry.boundingBox;
+          const center = new THREE.Vector3();
+          scaledBox.getCenter(center);
+
+          // Centralizar na mesa (X=0, Y=0) e pés em Z=0
+          geometry.translate(-center.x, -center.y, -scaledBox.min.z);
+
+          geometry.computeBoundingBox();
+          const finalBox = geometry.boundingBox;
+          const finalSize = new THREE.Vector3();
+          finalBox.getSize(finalSize);
+
+          // Gerar UVs para texturização
+          if (!geometry.attributes.uv && geometry.attributes.position) {
+            const pos = geometry.attributes.position;
+            const uvs = new Float32Array(pos.count * 2);
+            for (let i = 0; i < pos.count; i++) {
+              const px = pos.getX(i);
+              const pz = pos.getZ(i);
+              uvs[i * 2] = (px - finalBox.min.x) / Math.max(0.001, finalSize.x);
+              uvs[i * 2 + 1] = (pz - finalBox.min.z) / Math.max(0.001, finalSize.z);
+            }
+            geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+          }
+
+          const dimensions = {
+            width: finalSize.x,
+            depth: finalSize.y,
+            height: finalSize.z
+          };
+
+          const stats = {
+            vertices: geometry.attributes.position.count,
+            triangles: geometry.index ? geometry.index.count / 3 : geometry.attributes.position.count / 3,
+            isManifold: true
+          };
+
+          this.setModel(geometry, dimensions);
+
+          resolve({ dimensions, stats });
+        },
+        undefined,
+        reject
+      );
+    });
+  }
+
+  async loadModelFromUrl(url, options = {}) {
+    if (url.endsWith('.stl')) {
+      return this.loadSTLFromUrl(url, options);
+    }
+    return this.loadGLBFromUrl(url, options);
+  }
 
   getMaterial(mode) {
     const bumpMap = this.currentTexture || null;

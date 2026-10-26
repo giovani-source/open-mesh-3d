@@ -546,10 +546,42 @@ export class MeshGenerator {
       }
     }
 
-    // Qualquer pixel não conectado ao exterior pertence ao objeto sólido!
-    const solidFg = new Uint8Array(W * H);
+    // 2. Preenchimento apenas de microporos/artefatos isolados (< 40 px), mantendo vãos abertos entre membros e capa
+    const solidFg = new Uint8Array(mainComponent);
+    const holeVisited = new Uint8Array(W * H);
+
     for (let i = 0; i < W * H; i++) {
-      solidFg[i] = outside[i] === 0 ? 1 : 0;
+      if (mainComponent[i] === 0 && outside[i] === 0 && holeVisited[i] === 0) {
+        const holePixels = [];
+        const hQueue = [i];
+        holeVisited[i] = 1;
+        let hHead = 0;
+        while (hHead < hQueue.length) {
+          const hp = hQueue[hHead++];
+          holePixels.push(hp);
+          const hpx = hp % W;
+          const hpy = Math.floor(hp / W);
+          const nbs = [
+            hpx > 0 ? hpy * W + (hpx - 1) : -1,
+            hpx < W - 1 ? hpy * W + (hpx + 1) : -1,
+            hpy > 0 ? (hpy - 1) * W + hpx : -1,
+            hpy < H - 1 ? (hpy + 1) * W + hpx : -1
+          ];
+          for (let n of nbs) {
+            if (n !== -1 && mainComponent[n] === 0 && outside[n] === 0 && holeVisited[n] === 0) {
+              holeVisited[n] = 1;
+              hQueue.push(n);
+            }
+          }
+        }
+
+        // Apenas microporos minúsculos (< 40 px) são preenchidos; vãos reais entre braço, capa e pernas são preservados!
+        if (holePixels.length < 40) {
+          for (let hp of holePixels) {
+            solidFg[hp] = 1;
+          }
+        }
+      }
     }
 
     return solidFg;
