@@ -30,7 +30,6 @@ class StudioApp {
     this.viewer = new Viewer3D(container);
 
     this.bindDropzones();
-    this.bindPresets();
     this.bindEngineTabs();
     this.bindSliders();
     this.bindToolbar();
@@ -38,8 +37,11 @@ class StudioApp {
     this.bindExports();
     this.bindModals();
 
-    // Inicia com o Busto Clássico para inspeção imediata da escultura 3D real
-    this.loadPreset('statue');
+    const statusEl = document.getElementById('gen-status');
+    if (statusEl) {
+      statusEl.textContent = 'Envie ou arraste qualquer imagem ou desenho no painel à esquerda para gerar seu modelo 3D.';
+      statusEl.style.color = '#00f2fe';
+    }
   }
 
   getPresets() {
@@ -293,11 +295,12 @@ class StudioApp {
       img.onload = () => {
         this.currentImage = img;
         this.currentImageSrc = e.target.result;
+        this.currentDepthImg = null;
+        this.currentGLBUrl = null;
         this.activeCropCanvas = null;
         this.activeCropSrc = e.target.result;
 
         this.updateImagePreview(e.target.result);
-        document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
 
         this.detectPoses(img);
         this.generate3DModel();
@@ -305,15 +308,6 @@ class StudioApp {
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
-  }
-
-  bindPresets() {
-    document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const key = btn.dataset.sample;
-        this.loadPreset(key);
-      });
-    });
   }
 
   bindEngineTabs() {

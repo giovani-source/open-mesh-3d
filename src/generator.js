@@ -42,91 +42,36 @@ export class MeshGenerator {
       }
     }
 
-    // 3. Segmentação e delimitação de Primeiro Plano (Bounding Box)
+    // 3. Segmentação Universal Robusta de Primeiro Plano (Bounding Box)
     let minX = srcW, maxX = 0, minY = srcH, maxY = 0;
     let fgTotal = 0;
 
+    let fullFg = new Uint8Array(srcW * srcH);
+
     if (depthDataFull) {
-      // Quando temos mapa neural de IA, a silhueta é 100% limpa e sem confusão de sombras escuras
-      for (let y = 0; y < dSrcH; y++) {
-        for (let x = 0; x < dSrcW; x++) {
-          const idx = (y * dSrcW + x) * 4;
-          if (depthDataFull[idx] > 20) {
-            const sx = Math.round((x / dSrcW) * srcW);
-            const sy = Math.round((y / dSrcH) * srcH);
-            minX = Math.min(minX, sx);
-            maxX = Math.max(maxX, sx);
-            minY = Math.min(minY, sy);
-            maxY = Math.max(maxY, sy);
-            fgTotal++;
-          }
-        }
-      }
-    }
-
-    // Fallback: Segmentação por cores se não houver profundidade neural
-    const bgCandidates = [];
-    if (fgTotal < 50) {
-      const colorBins = new Map();
-      for (let i = 0; i < srcW * srcH; i++) {
-        if (rawData[i * 4 + 3] < 50) continue;
-        const r = Math.floor(rawData[i * 4] / 20) * 20;
-        const g = Math.floor(rawData[i * 4 + 1] / 20) * 20;
-        const b = Math.floor(rawData[i * 4 + 2] / 20) * 20;
-        const key = `${r},${g},${b}`;
-        colorBins.set(key, (colorBins.get(key) || 0) + 1);
-      }
-
-      const sortedBins = Array.from(colorBins.entries()).sort((a, b) => b[1] - a[1]);
-      const borderSamples = [];
-      const samplePixel = (x, y) => {
-        const idx = (y * srcW + x) * 4;
-        if (rawData[idx + 3] > 40) {
-          borderSamples.push({ r: rawData[idx], g: rawData[idx + 1], b: rawData[idx + 2] });
-        }
-      };
-      for (let x = 0; x < srcW; x += 4) { samplePixel(x, 0); samplePixel(x, srcH - 1); }
-      for (let y = 0; y < srcH; y += 4) { samplePixel(0, y); samplePixel(srcW - 1, y); }
-
-      if (borderSamples.length > 0) {
-        let br = 0, bg = 0, bb = 0;
-        for (let s of borderSamples) { br += s.r; bg += s.g; bb += s.b; }
-        bgCandidates.push({ r: br / borderSamples.length, g: bg / borderSamples.length, b: bb / borderSamples.length, tol: 40 });
-      }
-
-      for (let [key, count] of sortedBins.slice(0, 4)) {
-        if (count > (srcW * srcH) * 0.12) {
-          const [r, g, b] = key.split(',').map(Number);
-          const brightness = (r + g + b) / 3;
-          if (brightness > 190 || brightness < 45 || count > (srcW * srcH) * 0.35) {
-            const already = bgCandidates.some(c => Math.sqrt((c.r - r)**2 + (c.g - g)**2 + (c.b - b)**2) < 35);
-            if (!already) bgCandidates.push({ r, g, b, tol: 42 });
-          }
-        }
-      }
-
       for (let y = 0; y < srcH; y++) {
         for (let x = 0; x < srcW; x++) {
-          const idx = (y * srcW + x) * 4;
-          if (rawData[idx + 3] < 50) continue;
-          const r = rawData[idx], g = rawData[idx + 1], b = rawData[idx + 2];
-          let isBg = false;
-          for (let cand of bgCandidates) {
-            if (Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2) <= cand.tol) {
-              isBg = true;
-              break;
-            }
-          }
-          if (!isBg) {
-            fgTotal++;
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-          }
+          const dx = Math.min(dSrcW - 1, Math.round((x / srcW) * dSrcW));
+          const dy = Math.min(dSrcH - 1, Math.round((y / srcH) * dSrcH));
+          const dVal = depthDataFull[(dy * dSrcW + dx) * 4];
+          if (dVal > 20) fullFg[y * srcW + x] = 1;
+        }
+      }
+    } else {
+      fullFg = this.segmentForeground(rawData, srcW, srcH);
+    }
+
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        if (fullFg[y * srcW + x] === 1) {
+          fgTotal++;
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
         }
       }
     }
 
-    if (fgTotal < 20 || fgTotal > srcW * srcH * 0.98) {
+    if (fgTotal < 50 || fgTotal > srcW * srcH * 0.98) {
       minX = 0; maxX = srcW - 1; minY = 0; maxY = srcH - 1;
     }
 
@@ -183,75 +128,15 @@ export class MeshGenerator {
       }
     }
 
-    // 5. Máscara Hermética 100% Confiável
+    // 5. Máscara Hermética 100% Confiável (nunca apaga roupas escuras como Batman!)
     let rawFg = new Uint8Array(width * height);
 
     if (depthRawData) {
-      // Se temos o mapa neural de profundidade, usamos sua segmentação precisa sem artefatos
       for (let i = 0; i < width * height; i++) {
         rawFg[i] = depthRawData[i * 4] > 20 ? 1 : 0;
       }
     } else {
-      let edgeR = 0, edgeG = 0, edgeB = 0, edgeCount = 0;
-      const addEdgeSample = (px, py) => {
-        const idx = (py * width + px) * 4;
-        if (data[idx + 3] > 30) {
-          edgeR += data[idx]; edgeG += data[idx + 1]; edgeB += data[idx + 2];
-          edgeCount++;
-        }
-      };
-      for (let x = 0; x < width; x++) { addEdgeSample(x, 0); addEdgeSample(x, height - 1); }
-      for (let y = 1; y < height - 1; y++) { addEdgeSample(0, y); addEdgeSample(width - 1, y); }
-      if (edgeCount > 0) { edgeR /= edgeCount; edgeG /= edgeCount; edgeB /= edgeCount; }
-      else { edgeR = 20; edgeG = 20; edgeB = 20; }
-
-      const isPixelBackground = (idx) => {
-        if (data[idx * 4 + 3] < 50) return true;
-        const r = data[idx * 4], g = data[idx * 4 + 1], b = data[idx * 4 + 2];
-        if (Math.sqrt((r - edgeR)**2 + (g - edgeG)**2 + (b - edgeB)**2) <= 36) return true;
-        for (let cand of bgCandidates) {
-          if (Math.sqrt((r - cand.r)**2 + (g - cand.g)**2 + (b - cand.b)**2) <= cand.tol) return true;
-        }
-        return false;
-      };
-
-      const isBgConnected = new Uint8Array(width * height);
-      const bgQueue = [];
-      for (let x = 0; x < width; x++) {
-        const topIdx = 0 * width + x;
-        const botIdx = (height - 1) * width + x;
-        if (isPixelBackground(topIdx)) { isBgConnected[topIdx] = 1; bgQueue.push(topIdx); }
-        if (isPixelBackground(botIdx)) { isBgConnected[botIdx] = 1; bgQueue.push(botIdx); }
-      }
-      for (let y = 1; y < height - 1; y++) {
-        const leftIdx = y * width + 0;
-        const rightIdx = y * width + (width - 1);
-        if (isPixelBackground(leftIdx)) { isBgConnected[leftIdx] = 1; bgQueue.push(leftIdx); }
-        if (isPixelBackground(rightIdx)) { isBgConnected[rightIdx] = 1; bgQueue.push(rightIdx); }
-      }
-
-      let qHead = 0;
-      while (qHead < bgQueue.length) {
-        const curr = bgQueue[qHead++];
-        const cx = curr % width;
-        const cy = Math.floor(curr / width);
-        const neighbors = [
-          cx > 0 ? cy * width + (cx - 1) : -1,
-          cx < width - 1 ? cy * width + (cx + 1) : -1,
-          cy > 0 ? (cy - 1) * width + cx : -1,
-          cy < height - 1 ? (cy + 1) * width + cx : -1
-        ];
-        for (let n of neighbors) {
-          if (n !== -1 && isBgConnected[n] === 0 && isPixelBackground(n)) {
-            isBgConnected[n] = 1;
-            bgQueue.push(n);
-          }
-        }
-      }
-
-      for (let i = 0; i < width * height; i++) {
-        rawFg[i] = isBgConnected[i] === 0 ? 1 : 0;
-      }
+      rawFg = this.segmentForeground(data, width, height);
     }
 
     // BFS 3 (ISLAND FILTERING): Extrair apenas o Maior Componente Conectado (elimina ruídos e pontinhos flutuantes)
@@ -358,10 +243,22 @@ export class MeshGenerator {
       for (let i = 0; i < width * height; i++) {
         if (mask[i] === 1 && rawDt[i] > maxDt) maxDt = rawDt[i];
       }
+
+      // Detalhes de alta frequência por máscara de nitidez (unsharp mask) da luminância
+      const lum = new Float32Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        lum[i] = (0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]);
+      }
+      const lumBlur = this.gaussianBlur2D(lum, width, height);
+
       for (let i = 0; i < width * height; i++) {
         if (mask[i] === 1) {
           const dNorm = Math.min(1.0, rawDt[i] / maxDt);
-          rawNeural[i] = (dNorm * 0.72 + depthMap[i] * 0.28) * 255;
+          // Curvatura esférica/elíptica anatômica (tronco, membros, cabeça)
+          const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
+          // Relevo de linhas de desenho (músculos, cinturão, olhos, emblema) sem cavar buracos em cores escuras
+          const lineRelief = (lum[i] - lumBlur[i]) / 255;
+          rawNeural[i] = Math.max(10, Math.min(250, (dome * 0.85 + (0.5 + lineRelief * 0.5) * 0.15) * 255));
           if (rawNeural[i] < minD) minD = rawNeural[i];
           if (rawNeural[i] > maxD) maxD = rawNeural[i];
         }
@@ -423,6 +320,215 @@ export class MeshGenerator {
         maxY: Math.min(height - 1, finalMaxY)
       }
     };
+  }
+
+  /**
+   * Segmentação Universal de Primeiro Plano:
+   * - Suporta canal alfa transparente diretamente
+   * - Para imagens opacas (desenhos, fotos, quadrinhos), inicia flood fill ESTRITAMENTE a partir das 4 bordas
+   * - Nunca invade o interior do personagem nem remove roupas escuras/pretas (Batman, capas, cabelos)
+   * - Elimina fundos com céu, gradientes ou cores uniformes
+   */
+  static segmentForeground(data, W, H) {
+    const isBg = new Uint8Array(W * H);
+
+    // 1. Verificação de transparência (se for PNG com canal alfa transparente)
+    let transparentCount = 0;
+    for (let i = 0; i < W * H; i++) {
+      if (data[i * 4 + 3] < 60) transparentCount++;
+    }
+
+    if (transparentCount > (W * H) * 0.005) {
+      // Tem canal alfa transparente: usa diretamente
+      const fg = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        fg[i] = data[i * 4 + 3] >= 60 ? 1 : 0;
+      }
+      return this.keepLargestComponentAndFillHoles(fg, W, H);
+    }
+
+    // 2. Imagem opaca: Amostragem das 4 bordas externas
+    const borderSamples = [];
+    const addBorder = (x, y) => {
+      const idx = (y * W + x) * 4;
+      borderSamples.push([data[idx], data[idx + 1], data[idx + 2]]);
+    };
+    for (let x = 0; x < W; x += 2) { addBorder(x, 0); addBorder(x, H - 1); }
+    for (let y = 1; y < H - 1; y += 2) { addBorder(0, y); addBorder(W - 1, y); }
+
+    let sumR = 0, sumG = 0, sumB = 0;
+    for (let c of borderSamples) { sumR += c[0]; sumG += c[1]; sumB += c[2]; }
+    const avgR = sumR / Math.max(1, borderSamples.length);
+    const avgG = sumG / Math.max(1, borderSamples.length);
+    const avgB = sumB / Math.max(1, borderSamples.length);
+
+    // 4 cantos da imagem
+    const corners = [
+      [0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]
+    ].map(([cx, cy]) => {
+      const idx = (cy * W + cx) * 4;
+      return [data[idx], data[idx + 1], data[idx + 2]];
+    });
+
+    const colorDist = (r1, g1, b1, r2, g2, b2) => {
+      return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+    };
+
+    const isNearBorderColor = (r, g, b) => {
+      if (colorDist(r, g, b, avgR, avgG, avgB) < 65) return true;
+      for (let c of corners) {
+        if (colorDist(r, g, b, c[0], c[1], c[2]) < 50) return true;
+      }
+      return false;
+    };
+
+    // 3. Flood-fill iniciado ESTRITAMENTE a partir das bordas externas
+    const queue = [];
+    const seedBorder = (x, y) => {
+      const idx = y * W + x;
+      if (isBg[idx] === 0) {
+        const p = idx * 4;
+        if (isNearBorderColor(data[p], data[p + 1], data[p + 2])) {
+          isBg[idx] = 1;
+          queue.push(idx);
+        }
+      }
+    };
+
+    for (let x = 0; x < W; x++) { seedBorder(x, 0); seedBorder(x, H - 1); }
+    for (let y = 1; y < H - 1; y++) { seedBorder(0, y); seedBorder(W - 1, y); }
+
+    let head = 0;
+    while (head < queue.length) {
+      const curr = queue[head++];
+      const cx = curr % W;
+      const cy = Math.floor(curr / W);
+      const cIdx = curr * 4;
+      const cr = data[cIdx], cg = data[cIdx + 1], cb = data[cIdx + 2];
+
+      const neighbors = [
+        cx > 0 ? [cx - 1, cy] : null,
+        cx < W - 1 ? [cx + 1, cy] : null,
+        cy > 0 ? [cx, cy - 1] : null,
+        cy < H - 1 ? [cx, cy + 1] : null
+      ];
+
+      for (let n of neighbors) {
+        if (!n) continue;
+        const nIdx = n[1] * W + n[0];
+        if (isBg[nIdx] === 0) {
+          const npIdx = nIdx * 4;
+          const nr = data[npIdx], ng = data[npIdx + 1], nb = data[npIdx + 2];
+          const localStep = colorDist(cr, cg, cb, nr, ng, nb);
+          const globalDist = colorDist(nr, ng, nb, avgR, avgG, avgB);
+
+          // Continuidade suave de fundo (não pula linhas pretas de contorno)
+          if (localStep < 26 && (globalDist < 75 || isNearBorderColor(nr, ng, nb))) {
+            isBg[nIdx] = 1;
+            queue.push(nIdx);
+          }
+        }
+      }
+    }
+
+    // 4. Inverter: primeiro plano é tudo o que não foi alcançado pelo fundo
+    const fg = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      fg[i] = isBg[i] === 0 ? 1 : 0;
+    }
+
+    return this.keepLargestComponentAndFillHoles(fg, W, H);
+  }
+
+  static keepLargestComponentAndFillHoles(fg, W, H) {
+    // 1. Encontrar o maior componente conectado
+    const labels = new Int32Array(W * H);
+    const compSizes = [0];
+    let currentLabel = 1;
+
+    for (let i = 0; i < W * H; i++) {
+      if (fg[i] === 1 && labels[i] === 0) {
+        let size = 0;
+        const q = [i];
+        labels[i] = currentLabel;
+        let head = 0;
+        while (head < q.length) {
+          const p = q[head++];
+          size++;
+          const px = p % W;
+          const py = Math.floor(p / W);
+          const neighbors = [
+            px > 0 ? py * W + (px - 1) : -1,
+            px < W - 1 ? py * W + (px + 1) : -1,
+            py > 0 ? (py - 1) * W + px : -1,
+            py < H - 1 ? (py + 1) * W + px : -1
+          ];
+          for (let n of neighbors) {
+            if (n !== -1 && fg[n] === 1 && labels[n] === 0) {
+              labels[n] = currentLabel;
+              q.push(n);
+            }
+          }
+        }
+        compSizes[currentLabel] = size;
+        currentLabel++;
+      }
+    }
+
+    let maxLabel = 1;
+    let maxSize = 0;
+    for (let c = 1; c < compSizes.length; c++) {
+      if (compSizes[c] > maxSize) {
+        maxSize = compSizes[c];
+        maxLabel = c;
+      }
+    }
+
+    const mainComponent = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      if (labels[i] === maxLabel) mainComponent[i] = 1;
+    }
+
+    // 2. Preenchimento de Cavidades/Furos Internos (Hole Filling)
+    const outside = new Uint8Array(W * H);
+    const outQ = [];
+    const seedOut = (x, y) => {
+      const idx = y * W + x;
+      if (mainComponent[idx] === 0 && outside[idx] === 0) {
+        outside[idx] = 1;
+        outQ.push(idx);
+      }
+    };
+
+    for (let x = 0; x < W; x++) { seedOut(x, 0); seedOut(x, H - 1); }
+    for (let y = 1; y < H - 1; y++) { seedOut(0, y); seedOut(W - 1, y); }
+
+    let oHead = 0;
+    while (oHead < outQ.length) {
+      const p = outQ[oHead++];
+      const px = p % W;
+      const py = Math.floor(p / W);
+      const neighbors = [
+        px > 0 ? py * W + (px - 1) : -1,
+        px < W - 1 ? py * W + (px + 1) : -1,
+        py > 0 ? (py - 1) * W + px : -1,
+        py < H - 1 ? (py + 1) * W + px : -1
+      ];
+      for (let n of neighbors) {
+        if (n !== -1 && mainComponent[n] === 0 && outside[n] === 0) {
+          outside[n] = 1;
+          outQ.push(n);
+        }
+      }
+    }
+
+    // Qualquer pixel não conectado ao exterior pertence ao objeto sólido!
+    const solidFg = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      solidFg[i] = outside[i] === 0 ? 1 : 0;
+    }
+
+    return solidFg;
   }
 
   /**
