@@ -164,46 +164,189 @@ export class MeshGenerator {
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
 
-    const depthMap = new Float32Array(width * height);
-    const mask = new Uint8Array(width * height);
+    // 4. Detecção de fundo estritamente a partir das 4 bordas externas com fechamento hermético de buracos internos
+    // Amostrar bordas da imagem reamostrada
+    let edgeR = 0, edgeG = 0, edgeB = 0, edgeCount = 0;
+    const addEdgeSample = (px, py) => {
+      const idx = (py * width + px) * 4;
+      if (data[idx + 3] > 30) {
+        edgeR += data[idx]; edgeG += data[idx + 1]; edgeB += data[idx + 2];
+        edgeCount++;
+      }
+    };
+    for (let x = 0; x < width; x++) { addEdgeSample(x, 0); addEdgeSample(x, height - 1); }
+    for (let y = 1; y < height - 1; y++) { addEdgeSample(0, y); addEdgeSample(width - 1, y); }
+    if (edgeCount > 0) { edgeR /= edgeCount; edgeG /= edgeCount; edgeB /= edgeCount; }
+    else { edgeR = 20; edgeG = 20; edgeB = 20; }
 
+    const isPixelBackground = (idx) => {
+      const a = data[idx * 4 + 3];
+      if (a < 50) return true; // Transparência é sempre fundo
+      const r = data[idx * 4];
+      const g = data[idx * 4 + 1];
+      const b = data[idx * 4 + 2];
+      const distBorder = Math.sqrt((r - edgeR) ** 2 + (g - edgeG) ** 2 + (b - edgeB) ** 2);
+      if (distBorder <= 36) return true;
+      for (let cand of bgCandidates) {
+        const d = Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2);
+        if (d <= cand.tol) return true;
+      }
+      return false;
+    };
+
+    // BFS 1: Marcar fundo conectado EXCLUSIVAMENTE às bordas externas
+    const isBgConnected = new Uint8Array(width * height);
+    const bgQueue = [];
+
+    for (let x = 0; x < width; x++) {
+      const topIdx = 0 * width + x;
+      const botIdx = (height - 1) * width + x;
+      if (isPixelBackground(topIdx)) { isBgConnected[topIdx] = 1; bgQueue.push(topIdx); }
+      if (isPixelBackground(botIdx)) { isBgConnected[botIdx] = 1; bgQueue.push(botIdx); }
+    }
+    for (let y = 1; y < height - 1; y++) {
+      const leftIdx = y * width + 0;
+      const rightIdx = y * width + (width - 1);
+      if (isPixelBackground(leftIdx)) { isBgConnected[leftIdx] = 1; bgQueue.push(leftIdx); }
+      if (isPixelBackground(rightIdx)) { isBgConnected[rightIdx] = 1; bgQueue.push(rightIdx); }
+    }
+
+    let qHead = 0;
+    while (qHead < bgQueue.length) {
+      const curr = bgQueue[qHead++];
+      const cx = curr % width;
+      const cy = Math.floor(curr / width);
+
+      const neighbors = [
+        cx > 0 ? cy * width + (cx - 1) : -1,
+        cx < width - 1 ? cy * width + (cx + 1) : -1,
+        cy > 0 ? (cy - 1) * width + cx : -1,
+        cy < height - 1 ? (cy + 1) * width + cx : -1
+      ];
+
+      for (let n of neighbors) {
+        if (n !== -1 && isBgConnected[n] === 0 && isPixelBackground(n)) {
+          isBgConnected[n] = 1;
+          bgQueue.push(n);
+        }
+      }
+    }
+
+    // BFS 2 (HOLE CLOSING): Propagar o exterior a partir das bordas
+    // Qualquer bolso interno (olhos, barba, rugas, sombras do busto) que NÃO alcançar a borda é 100% PREENCHIDO
+    const isExterior = new Uint8Array(width * height);
+    const extQueue = [];
+
+    for (let x = 0; x < width; x++) {
+      const t = 0 * width + x;
+      const b = (height - 1) * width + x;
+      if (isBgConnected[t]) { isExterior[t] = 1; extQueue.push(t); }
+      if (isBgConnected[b]) { isExterior[b] = 1; extQueue.push(b); }
+    }
+    for (let y = 1; y < height - 1; y++) {
+      const l = y * width + 0;
+      const r = y * width + (width - 1);
+      if (isBgConnected[l]) { isExterior[l] = 1; extQueue.push(l); }
+      if (isBgConnected[r]) { isExterior[r] = 1; extQueue.push(r); }
+    }
+
+    let eHead = 0;
+    while (eHead < extQueue.length) {
+      const curr = extQueue[eHead++];
+      const cx = curr % width;
+      const cy = Math.floor(curr / width);
+
+      const neighbors = [
+        cx > 0 ? cy * width + (cx - 1) : -1,
+        cx < width - 1 ? cy * width + (cx + 1) : -1,
+        cy > 0 ? (cy - 1) * width + cx : -1,
+        cy < height - 1 ? (cy + 1) * width + cx : -1
+      ];
+
+      for (let n of neighbors) {
+        if (n !== -1 && isExterior[n] === 0 && isBgConnected[n] === 1) {
+          isExterior[n] = 1;
+          extQueue.push(n);
+        }
+      }
+    }
+
+    // Primeiro plano preliminar: tudo o que não é exterior
+    const rawFg = new Uint8Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+      rawFg[i] = isExterior[i] === 0 ? 1 : 0;
+    }
+
+    // BFS 3 (ISLAND FILTERING): Extrair apenas o Maior Componente Conectado (elimina ruídos e pontinhos flutuantes)
+    const labels = new Int32Array(width * height);
+    const compSizes = [0];
+    let currentLabel = 1;
+
+    for (let i = 0; i < width * height; i++) {
+      if (rawFg[i] === 1 && labels[i] === 0) {
+        let size = 0;
+        const compQueue = [i];
+        labels[i] = currentLabel;
+        let cHead = 0;
+
+        while (cHead < compQueue.length) {
+          const p = compQueue[cHead++];
+          size++;
+          const px = p % width;
+          const py = Math.floor(p / width);
+
+          const neighbors = [
+            px > 0 ? py * width + (px - 1) : -1,
+            px < width - 1 ? py * width + (px + 1) : -1,
+            py > 0 ? (py - 1) * width + px : -1,
+            py < height - 1 ? (py + 1) * width + px : -1
+          ];
+
+          for (let nb of neighbors) {
+            if (nb !== -1 && rawFg[nb] === 1 && labels[nb] === 0) {
+              labels[nb] = currentLabel;
+              compQueue.push(nb);
+            }
+          }
+        }
+
+        compSizes[currentLabel] = size;
+        currentLabel++;
+      }
+    }
+
+    let maxCompIdx = 1;
+    let maxCompSize = 0;
+    for (let c = 1; c < compSizes.length; c++) {
+      if (compSizes[c] > maxCompSize) {
+        maxCompSize = compSizes[c];
+        maxCompIdx = c;
+      }
+    }
+
+    // Máscara final sem furos e sem ruídos
+    const mask = new Uint8Array(width * height);
+    const depthMap = new Float32Array(width * height);
     let finalMinX = width, finalMaxX = 0, finalMinY = height, finalMaxY = 0;
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
-        const r = data[idx * 4];
-        const g = data[idx * 4 + 1];
-        const b = data[idx * 4 + 2];
-        const a = data[idx * 4 + 3];
-
-        let isBg = false;
-        if (a < 50) {
-          isBg = true;
-        } else {
-          for (let cand of bgCandidates) {
-            const d = Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2);
-            if (d <= cand.tol) {
-              isBg = true;
-              break;
-            }
-          }
-        }
-
-        if (!isBg) {
+        if (labels[idx] === maxCompIdx) {
           mask[idx] = 1;
           finalMinX = Math.min(finalMinX, x);
           finalMaxX = Math.max(finalMaxX, x);
           finalMinY = Math.min(finalMinY, y);
           finalMaxY = Math.max(finalMaxY, y);
         }
-
-        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        depthMap[idx] = lum;
+        const r = data[idx * 4];
+        const g = data[idx * 4 + 1];
+        const b = data[idx * 4 + 2];
+        depthMap[idx] = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       }
     }
 
-    // 6. Normalização do mapa de relevo
+    // 6. Normalização do mapa de relevo suave
     const reliefMap = new Float32Array(width * height);
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
@@ -213,7 +356,7 @@ export class MeshGenerator {
         const dx = (depthMap[idx + 1] - depthMap[idx - 1]) * 0.5;
         const dy = (depthMap[idx + width] - depthMap[idx - width]) * 0.5;
         const edge = Math.sqrt(dx * dx + dy * dy);
-        reliefMap[idx] = (depthMap[idx] - 0.5) * 0.7 + edge * 0.3;
+        reliefMap[idx] = (depthMap[idx] - 0.5) * 0.4 + edge * 0.2;
       }
     }
 
@@ -435,11 +578,14 @@ export class MeshGenerator {
 
         // Curvatura esférica/cilíndrica orgânica
         const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade;
-        const emboss = (reliefMap[idx] || 0) * depthDetail * 1.2 * edgeFade;
+        const baseThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade;
+        const maxEmboss = baseThickness * 0.38;
+        const rawEmboss = (reliefMap[idx] || 0) * depthDetail * 0.8 * edgeFade;
+        const emboss = Math.max(-maxEmboss, Math.min(maxEmboss, rawEmboss));
+        const frontThickness = Math.max(0.2 * edgeFade, baseThickness + emboss);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        const yPos = -(bodyThickness + emboss);
+        const yPos = -frontThickness;
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
@@ -460,10 +606,10 @@ export class MeshGenerator {
         const edgeFade = edgeT * edgeT * (3.0 - 2.0 * edgeT);
 
         const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
-        const bodyThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade * 0.92;
+        const backThickness = Math.max(0.2 * edgeFade, (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade * 0.90);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        const yPos = +(bodyThickness);
+        const yPos = +backThickness;
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
