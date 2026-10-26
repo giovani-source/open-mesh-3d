@@ -15,10 +15,11 @@ class StudioApp {
     this.isGenerating = false;
 
     this.options = {
-      targetHeight: 90,     // mm no eixo Z (altura em pé na mesa)
-      maxDepth: 24,         // mm no eixo Y (volume do corpo)
-      depthDetail: 1.2,     // intensidade de relevo
-      addPedestal: true,    // base sólida chanfrada para a mesa aquecida
+      targetHeight: 85,     // mm no eixo Z (altura)
+      maxDepth: 18,         // mm no eixo Y (espessura elegante e sólida)
+      depthDetail: 1.0,     // intensidade de relevo suave
+      addPedestal: false,   // sem base por padrão
+      backStyle: 'flat',    // 'flat' (traseira plana para deitar na mesa sem suporte) ou 'dome'
       engineMode: 'volumetric'  // 'volumetric' (Sculptor3D orgânico), 'neural' ou 'relief'
     };
 
@@ -57,7 +58,7 @@ class StudioApp {
         depthUrl: null,
         glbUrl: null,
         height: 85,
-        depth: 36,
+        depth: 18,
         mode: 'volumetric'
       },
       statue: {
@@ -390,12 +391,23 @@ class StudioApp {
 
     const pedestalCheck = document.getElementById('check-pedestal');
     if (pedestalCheck) {
+      pedestalCheck.checked = this.options.addPedestal;
       pedestalCheck.addEventListener('change', () => {
         this.options.addPedestal = pedestalCheck.checked;
         if (this.options.engineMode !== 'neural' || !this.viewer.currentModel) {
           this.generate3DModel();
         } else {
           this.reapplyScaleAndPedestal();
+        }
+      });
+    }
+
+    const backstyleSelect = document.getElementById('select-backstyle');
+    if (backstyleSelect) {
+      backstyleSelect.addEventListener('change', () => {
+        this.options.backStyle = backstyleSelect.value;
+        if (this.options.engineMode !== 'neural') {
+          this.generate3DModel();
         }
       });
     }
@@ -543,6 +555,7 @@ class StudioApp {
           maxDepth: this.options.maxDepth,
           depthDetail: this.options.depthDetail,
           addPedestal: this.options.addPedestal,
+          backStyle: this.options.backStyle || 'flat',
           pedestalHeight: 4.0
         });
       }

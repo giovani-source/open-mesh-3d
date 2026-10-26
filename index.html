@@ -127,19 +127,30 @@
 
             <div class="param-group" id="group-depth">
               <div class="param-header">
-                <label for="param-depth">Volume do Busto / Profundidade (Y)</label>
-                <span id="val-depth" class="param-val">36 mm</span>
+                <label for="param-depth">Espessura / Profundidade da Peça</label>
+                <span id="val-depth" class="param-val">18 mm</span>
               </div>
-              <input type="range" id="param-depth" min="15" max="80" step="1" value="36" class="slider" />
+              <input type="range" id="param-depth" min="8" max="50" step="1" value="18" class="slider" />
+            </div>
+
+            <div class="toggle-row" id="group-backstyle">
+              <div class="toggle-label-wrap">
+                <span class="toggle-label">Estilo da Traseira</span>
+                <span class="toggle-sub">Plana para impressão limpa sem suportes</span>
+              </div>
+              <select id="select-backstyle" class="dropdown-select" style="background: #141c2e; color: #fff; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 500; cursor: pointer;">
+                <option value="flat" selected>Traseira Plana (Sem estufar / Sem Suporte)</option>
+                <option value="dome">Arredondada Simétrica</option>
+              </select>
             </div>
 
             <div class="toggle-row" id="group-pedestal">
               <div class="toggle-label-wrap">
                 <span class="toggle-label">Pedestal de Apoio na Mesa</span>
-                <span class="toggle-sub">Base sólida chanfrada para impressão 3D perfeita em pé</span>
+                <span class="toggle-sub">Base oval adicional (opcional)</span>
               </div>
               <label class="switch">
-                <input type="checkbox" id="check-pedestal" checked />
+                <input type="checkbox" id="check-pedestal" />
                 <span class="switch-slider"></span>
               </label>
             </div>

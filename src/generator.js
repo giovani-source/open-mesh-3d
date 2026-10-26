@@ -699,10 +699,12 @@ export class MeshGenerator {
   static createVolumetricSculpture(processedImage, options = {}) {
     const {
       targetHeight = 85,     // mm (altura em pé Z)
-      maxDepth = 36,         // mm (volume do busto Y)
-      depthDetail = 1.4,     // relevo de feições faciais e dobras
-      addPedestal = true,    // base sólida chanfrada para mesa aquecida
-      pedestalHeight = 4.0   // mm
+      maxDepth = 18,         // mm (espessura Y total)
+      depthDetail = 1.0,     // intensidade de relevo
+      addPedestal = false,   // sem base por padrão
+      pedestalHeight = 4.0,  // mm
+      backStyle = 'flat',    // 'flat' (traseira limpa e plana sem estufar) ou 'dome' (arredondada simétrica)
+      smoothness = 6         // iterações de suavização laplaciana para eliminar degraus e ranhuras de pixel
     } = options;
 
     const { width: W, height: H, data, mask, depthMap, neuralDepthMap, reliefMap, bounds } = processedImage;
@@ -713,27 +715,14 @@ export class MeshGenerator {
 
     const targetWidth = targetHeight * (charW / charH);
 
-    // Transformada de Distância Global Contínua
+    // Transformada de Distância Global Suavizada (elimina arestas serrilhadas e degraus de pixel)
     const rawDt = this.computeDistanceTransform(mask, W, H);
-    const dt = this.gaussianBlur2D(rawDt, W, H);
+    let dt = this.gaussianBlur2D(rawDt, W, H);
+    dt = this.gaussianBlur2D(dt, W, H);
 
     let maxDist = 1;
     for (let i = 0; i < W * H; i++) {
       if (mask[i] === 1 && dt[i] > maxDist) maxDist = dt[i];
-    }
-
-    // Região da Cabeça (aproximadamente os 48% superiores do busto)
-    const headCutoffY = minY + Math.round(charH * 0.48);
-    const headMask = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) {
-      const y = Math.floor(i / W);
-      headMask[i] = (mask[i] === 1 && y <= headCutoffY) ? 1 : 0;
-    }
-    const rawHeadDt = this.computeDistanceTransform(headMask, W, H);
-    const headDt = this.gaussianBlur2D(rawHeadDt, W, H);
-    let maxHeadDt = 1;
-    for (let i = 0; i < W * H; i++) {
-      if (headMask[i] === 1 && headDt[i] > maxHeadDt) maxHeadDt = headDt[i];
     }
 
     // Mapear vértices de primeiro plano
@@ -749,44 +738,15 @@ export class MeshGenerator {
       throw new Error('Nenhum objeto detectado na imagem.');
     }
 
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-
-    // O busto afunda 2.0mm diretamente na base chanfrada de 4.0mm, garantindo união volumétrica estanque sem vazios
-    const zBaseOffset = addPedestal ? 2.0 : 0;
-    const usableHeight = targetHeight - zBaseOffset;
-
-    const minSolidFront = 3.8;
-    const minSolidBack = 3.2;
+    // 1. Extração de características anatômicas contínuas (cinto, músculos, emblema, capa)
+    const rawFeat = new Float32Array(W * H);
     const charCenterX = (minX + maxX) / 2;
 
-    // 1. Vértices da Frente (Anatomia Tridimensional Contínua: Nariz Saliente, Órbitas Recuadas, Barba)
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const idx = y * W + x;
-        if (mask[idx] === 0) continue;
-
-        const dNorm = Math.min(1.0, dt[idx] / maxDist);
-
-        // Base sólida: nos últimos 12% da base, mantém espessura total sem afinar para faca
-        const distFromBottom = maxY - y;
-        const bottomZone = Math.max(4, Math.round(charH * 0.12));
-        const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
-
-        // Volume anatômico contínuo do crânio, pescoço e tórax
-        const baseDome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
-        const baseVolume = baseDome * (maxDepth * 0.52);
-
-        // Geometria da base sólida na mesa de impressão (sem afinar para lâmina)
-        const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - charCenterX) / Math.max(1, bottomSpan);
-        const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
-        const solidBaseFront = (maxDepth * 0.50) * Math.max(0.35, lateralFade);
-
-        // Detalhes anatômicos e semânticos extraídos dos traços originais da imagem
-        let featureDisp = 0;
-        if (data) {
+    if (data) {
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const idx = y * W + x;
+          if (mask[idx] === 0) continue;
           const r = data[idx * 4], g = data[idx * 4 + 1], b = data[idx * 4 + 2];
           const isBelt = (r > 150 && g > 110 && b < 80 && (r - b) > 40);
           const isCape = (b > r + 15 && b > g + 10 && b > 50);
@@ -794,26 +754,41 @@ export class MeshGenerator {
           const isInk = (r < 55 && g < 55 && b < 55);
           const isChestEmblem = isInk && (y >= minY + charH * 0.20 && y <= minY + charH * 0.44) && (Math.abs(x - charCenterX) < charW * 0.28);
 
-          if (isBelt) featureDisp += 2.6;
-          else if (isChestEmblem) featureDisp += 1.8;
-          else if (isSkin) featureDisp += 1.8;
-          else if (isInk) featureDisp -= 1.4;
-          else if (isCape) featureDisp -= 2.2;
+          if (isBelt) rawFeat[idx] = 1.6;
+          else if (isChestEmblem) rawFeat[idx] = 1.1;
+          else if (isSkin) rawFeat[idx] = 0.8;
+          else if (isInk) rawFeat[idx] = -0.6;
+          else if (isCape) rawFeat[idx] = -0.8;
         }
+      }
+    }
 
-        // Relevo de Alta Precisão (Nose +11.8, Bochechas +4.9, Órbitas -3.5, Barba, Dobras de Toga)
-        const highpass = reliefMap ? reliefMap[idx] : 0;
-        const sculptProjection = highpass * 0.35 * depthDetail;
+    // Suavização Gaussiana dupla para garantir transições orgânicas sem nenhuma ranhura ou degrau de pixel
+    let smoothFeat = this.gaussianBlur2D(rawFeat, W, H);
+    smoothFeat = this.gaussianBlur2D(smoothFeat, W, H);
 
-        // Microrrelevo de escultura em pedra / rugas / textura a partir da luminância
-        const stoneDetail = ((depthMap ? depthMap[idx] : 0.5) - 0.5) * 1.8 * depthDetail;
+    const positions = [];
+    const uvs = [];
+    const indices = [];
 
-        const totalFeatureDisplacement = featureDisp * depthDetail + sculptProjection * (1.0 - baseBlend) + stoneDetail;
+    const zBaseOffset = addPedestal ? 2.0 : 0;
+    const usableHeight = targetHeight - zBaseOffset;
 
-        const effVolumeFront = baseVolume * (1.0 - baseBlend) + solidBaseFront * baseBlend;
-        // Borda suave chanfrada/arredondada sem afinar para lâmina ou deixar oco
-        const bodyRoll = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.5;
-        const frontThickness = Math.max(minSolidFront, minSolidFront + (effVolumeFront - minSolidFront) * bodyRoll + totalFeatureDisplacement * (1.0 - baseBlend * 0.5));
+    // Espessura sólida uniforme de base (garante rigidez mecânica na impressão 3D)
+    const baseThickness = Math.max(3.5, maxDepth * 0.35);
+
+    // 2. Vértices da Frente (Relevo Anatômico Suave, Orgânico e Liso)
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const idx = y * W + x;
+        if (mask[idx] === 0) continue;
+
+        const dNorm = Math.min(1.0, dt[idx] / maxDist);
+        // Curvatura anatômica orgânica contínua
+        const bodyCurve = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2)) ** 0.55;
+
+        const featureRelief = smoothFeat[idx] * depthDetail;
+        const frontThickness = baseThickness + bodyCurve * (maxDepth * 0.55) + featureRelief;
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = -frontThickness;
@@ -824,31 +799,27 @@ export class MeshGenerator {
       }
     }
 
-    // 2. Vértices do Verso (Volume Craniano e Dorsal Suave e Completo)
+    // 3. Vértices do Verso
+    // Se backStyle === 'flat': TRASEIRA PLANA E LIMPA! (y = 0)
+    // Sem estufar pra trás, sem barriga, sem bolha bizarra!
+    // Se backStyle === 'dome': arredondamento suave e simétrico
     const backOffset = totalFgPixels;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
         if (mask[idx] === 0) continue;
 
-        const dNorm = Math.min(1.0, dt[idx] / maxDist);
-
-        const distFromBottom = maxY - y;
-        const bottomZone = Math.max(4, Math.round(charH * 0.12));
-        const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
-
-        const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - charCenterX) / Math.max(1, bottomSpan);
-        const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
-        const solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
-
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
-        const effVolumeBack = (dome * (maxDepth * 0.44)) * (1.0 - baseBlend) + solidBaseBack * baseBlend;
-        const bodyRoll = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.5;
-        const backThickness = Math.max(minSolidBack, minSolidBack + (effVolumeBack - minSolidBack) * bodyRoll);
+        let backY = 0;
+        if (backStyle === 'dome') {
+          const dNorm = Math.min(1.0, dt[idx] / maxDist);
+          const bodyCurve = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2)) ** 0.55;
+          backY = (baseThickness * 0.35) + bodyCurve * (maxDepth * 0.25);
+        } else {
+          backY = 0; // Traseira 100% plana para deitar na mesa da impressora 3D!
+        }
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
-        const yPos = +backThickness;
+        const yPos = +backY;
         const zPos = zBaseOffset + ((maxY - y) / charH) * usableHeight;
 
         positions.push(xPos, yPos, Math.max(0, zPos));
@@ -856,7 +827,7 @@ export class MeshGenerator {
       }
     }
 
-    // 3. Triangulação de Alta Fidelidade
+    // 4. Triangulação de Alta Fidelidade
     const frontTris = [];
     for (let y = minY; y < maxY; y++) {
       for (let x = minX; x < maxX; x++) {
@@ -885,7 +856,7 @@ export class MeshGenerator {
       indices.push(backOffset + frontTris[i], backOffset + frontTris[i + 2], backOffset + frontTris[i + 1]);
     }
 
-    // 4. Fechamento Perimétrico Hermético 100% Manifold (Borda Externa Contínua)
+    // 5. Fechamento Perimétrico Hermético 100% Manifold (Borda Externa Contínua)
     const edgeCounts = new Map();
     for (let i = 0; i < frontTris.length; i += 3) {
       const a = frontTris[i], b = frontTris[i + 1], c = frontTris[i + 2];
@@ -905,6 +876,11 @@ export class MeshGenerator {
           indices.push(u, vB, uB);
         }
       }
+    }
+
+    // 6. Suavização Laplaciana 3D Anti-Serrilhado: elimina degraus de pixel, dentes de serra e ranhuras!
+    if (smoothness > 0) {
+      this.applyLaplacianSmoothing(positions, indices, smoothness, 0.35);
     }
 
     // 5. Pedestal Sólido Chanfrado Integrado para a Mesa Aquecida (Z = 0 a Z = pedestalHeight)

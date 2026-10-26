@@ -445,17 +445,11 @@ export class Viewer3D {
   }
 
   exportSTL(filename = 'boneco_3d.stl', isBinary = true) {
-    if (!this.modelGroup || this.modelGroup.children.length === 0) return null;
-    
-    const exportGroup = new THREE.Group();
-    this.modelGroup.children.forEach(child => {
-      if (child !== this.wireframeMesh && child.visible) {
-        exportGroup.add(child.clone());
-      }
-    });
+    const targetObj = this.currentMesh || this.currentModel;
+    if (!targetObj) return null;
 
     const exporter = new STLExporter();
-    const result = exporter.parse(exportGroup, { binary: isBinary });
+    const result = exporter.parse(targetObj, { binary: isBinary });
 
     const blob = new Blob([result], {
       type: isBinary ? 'application/octet-stream' : 'text/plain'
