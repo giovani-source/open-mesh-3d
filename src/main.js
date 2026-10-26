@@ -49,7 +49,7 @@ class StudioApp {
         depthUrl: './samples/statue_bust_depth.png',
         glbUrl: null,
         height: 85,
-        depth: 26,
+        depth: 36,
         mode: 'volumetric'
       },
       orange_bot: {
