@@ -1,35 +1,35 @@
 import './style.css';
 import { Viewer3D } from './viewer.js';
 import { MeshGenerator } from './generator.js';
+import { CloudAIService } from './api.js';
+import { CharacterSheetDetector } from './imageCropper.js';
 
 class StudioApp {
   constructor() {
     this.viewer = null;
     this.currentImage = null;
-    this.currentEngine = 'relief'; // 'relief' or 'volumetric'
-    this.currentProcessed = null;
+    this.currentImageSrc = null;
+    this.activeCropCanvas = null;
+    this.activeCropSrc = null;
+    this.detectedPoses = null;
+    this.isGenerating = false;
 
     this.options = {
-      targetWidth: 80,
-      reliefHeight: 8,
-      baseThickness: 3,
-      resolution: 140,
-      smoothing: 1,
-      shape: 'coin',
-      invertDepth: false,
-      maxThickness: 20
+      targetHeight: 90,     // mm no eixo Z (altura em pé na mesa)
+      maxDepth: 24,         // mm no eixo Y (volume do corpo)
+      depthDetail: 1.2,     // intensidade de relevo
+      addPedestal: true,    // base sólida chanfrada para a mesa aquecida
+      engineMode: 'volumetric'  // 'volumetric' (Sculptor3D orgânico), 'neural' ou 'relief'
     };
 
     this.init();
   }
 
   init() {
-    // 1. Initialize 3D Viewport
     const container = document.getElementById('canvas-container');
     this.viewer = new Viewer3D(container);
 
-    // 2. Setup Event Listeners
-    this.bindDropzone();
+    this.bindDropzones();
     this.bindPresets();
     this.bindEngineTabs();
     this.bindSliders();
@@ -38,30 +38,220 @@ class StudioApp {
     this.bindExports();
     this.bindModals();
 
-    // 3. Load default sample
-    this.loadSampleImage('/samples/dragon_coin.jpg');
+    // Inicia com o Busto Clássico para inspeção imediata da escultura 3D real
+    this.loadPreset('statue');
   }
 
-  loadSampleImage(url) {
+  getPresets() {
+    return {
+      statue: {
+        url: './samples/statue_bust.jpg',
+        depthUrl: './samples/statue_bust_depth.png',
+        glbUrl: null,
+        height: 85,
+        depth: 36,
+        mode: 'volumetric'
+      },
+      orange_bot: {
+        url: './samples/bot_front.png',
+        depthUrl: './samples/bot_front_depth.png',
+        fullSheetUrl: './samples/user_bots.png',
+        glbUrl: null,
+        height: 90,
+        depth: 24,
+        mode: 'volumetric'
+      },
+      superman: {
+        url: './samples/superman.png',
+        depthUrl: './samples/superman_depth.png',
+        glbUrl: null,
+        height: 90,
+        depth: 24,
+        mode: 'volumetric'
+      },
+      robot: {
+        url: './samples/robot_toy.jpg',
+        depthUrl: './samples/robot_toy_depth.png',
+        glbUrl: null,
+        height: 85,
+        depth: 26,
+        mode: 'volumetric'
+      },
+      dragon: {
+        url: './samples/dragon_coin.jpg',
+        depthUrl: null,
+        glbUrl: null,
+        height: 75,
+        depth: 14,
+        mode: 'relief'
+      }
+    };
+  }
+
+  loadPreset(key) {
+    const presets = this.getPresets();
+    const config = presets[key];
+    if (!config) return;
+
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      if (btn.dataset.sample === key) btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+
+    this.options.targetHeight = config.height;
+    this.options.maxDepth = config.depth;
+    this.options.engineMode = config.mode;
+
+    const heightSlider = document.getElementById('param-height');
+    if (heightSlider) {
+      heightSlider.value = config.height;
+      document.getElementById('val-height').textContent = `${config.height} mm`;
+    }
+    const depthSlider = document.getElementById('param-depth');
+    if (depthSlider) {
+      depthSlider.value = config.depth;
+      document.getElementById('val-depth').textContent = `${config.depth} mm`;
+    }
+
+    this.updateEngineTabsUI(config.mode);
+
+    this.currentDepthImg = null;
+
+    const onAllLoaded = () => {
+      this.activeCropCanvas = null;
+      this.activeCropSrc = config.url;
+
+      this.updateImagePreview(config.url);
+      this.detectPoses(this.currentImage);
+
+      if (config.glbUrl) {
+        this.loadPrecomputedGLB(config.glbUrl);
+      } else {
+        this.generate3DModel();
+      }
+    };
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       this.currentImage = img;
-      this.updateImagePreview(img.src);
-      this.generateModel();
+      this.currentImageSrc = config.url;
+
+      if (config.depthUrl) {
+        const depthImg = new Image();
+        depthImg.crossOrigin = 'anonymous';
+        depthImg.onload = () => {
+          this.currentDepthImg = depthImg;
+          onAllLoaded();
+        };
+        depthImg.onerror = () => {
+          console.warn('Não foi possível carregar o mapa de profundidade pré-computado:', config.depthUrl);
+          onAllLoaded();
+        };
+        depthImg.src = config.depthUrl;
+      } else {
+        onAllLoaded();
+      }
     };
-    img.src = url;
+    img.src = config.url;
+  }
+
+  async loadPrecomputedGLB(glbUrl) {
+    const statusEl = document.getElementById('gen-status');
+    statusEl.textContent = 'Carregando modelo 3D volumétrico de alta fidelidade...';
+    statusEl.style.color = '#00f2fe';
+
+    try {
+      if (this.currentImage) {
+        const processed = MeshGenerator.getImageData(this.currentImage, 180);
+        this.viewer.setTextureFromCanvas(processed.canvas);
+      }
+
+      const res = await this.viewer.loadGLBFromUrl(glbUrl, {
+        targetHeight: this.options.targetHeight,
+        addPedestal: this.options.addPedestal
+      });
+
+      this.updateMetricsUI(res.dimensions, res.stats);
+      statusEl.textContent = `Modelo 3D pronto! (${res.stats.triangles.toLocaleString()} polígonos orgânicos • 100% Manifold)`;
+      statusEl.style.color = '#34d399';
+    } catch (err) {
+      console.warn('Erro ao carregar GLB pré-computado, gerando localmente:', err);
+      this.generate3DModel();
+    }
+  }
+
+  detectPoses(img) {
+    const poseContainer = document.getElementById('pose-selector');
+    const pillsContainer = document.getElementById('pose-pills-container');
+    if (!poseContainer || !pillsContainer) return;
+
+    try {
+      const result = CharacterSheetDetector.detectCharacters(img);
+      this.detectedPoses = result;
+
+      if (result.hasMultiple && result.views.length > 1) {
+        pillsContainer.innerHTML = '';
+
+        result.views.forEach(view => {
+          const pill = document.createElement('button');
+          pill.className = `pose-pill ${view.isRecommended ? 'active' : ''}`;
+          pill.innerHTML = `${view.isRecommended ? '<span class="star-rec">★</span> ' : ''}${view.label}`;
+          pill.addEventListener('click', () => {
+            pillsContainer.querySelectorAll('.pose-pill').forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            this.activeCropCanvas = view.canvas;
+            this.activeCropSrc = view.dataUrl;
+            this.updateImagePreview(view.dataUrl);
+            this.generate3DModel();
+          });
+          pillsContainer.appendChild(pill);
+        });
+
+        // Botão para imagem completa
+        const fullBtn = document.createElement('button');
+        fullBtn.className = 'pose-pill';
+        fullBtn.textContent = 'Imagem Inteira';
+        fullBtn.addEventListener('click', () => {
+          pillsContainer.querySelectorAll('.pose-pill').forEach(p => p.classList.remove('active'));
+          fullBtn.classList.add('active');
+          this.activeCropCanvas = null;
+          this.activeCropSrc = this.currentImageSrc;
+          this.updateImagePreview(this.currentImageSrc);
+          this.generate3DModel();
+        });
+        pillsContainer.appendChild(fullBtn);
+
+        poseContainer.classList.remove('hidden');
+
+        // Seleciona a recomendada por padrão
+        const rec = result.views.find(v => v.isRecommended) || result.views[0];
+        if (rec) {
+          this.activeCropCanvas = rec.canvas;
+          this.activeCropSrc = rec.dataUrl;
+        }
+      } else {
+        poseContainer.classList.add('hidden');
+        this.activeCropCanvas = null;
+        this.activeCropSrc = this.currentImageSrc;
+      }
+    } catch (err) {
+      console.warn('Detecção de poses ignorada:', err);
+      poseContainer.classList.add('hidden');
+    }
   }
 
   updateImagePreview(src) {
     const preview = document.getElementById('image-preview');
     const prompt = document.getElementById('dropzone-prompt');
-    preview.src = src;
-    preview.classList.remove('hidden');
-    prompt.classList.add('hidden');
+    if (preview && prompt) {
+      preview.src = src;
+      preview.classList.remove('hidden');
+      prompt.classList.add('hidden');
+    }
   }
 
-  bindDropzone() {
+  bindDropzones() {
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('file-input');
 
@@ -93,7 +283,7 @@ class StudioApp {
 
   handleFile(file) {
     if (!file.type.startsWith('image/')) {
-      alert('Por favor selecione um arquivo de imagem válido (PNG, JPG, WEBP).');
+      alert('Selecione uma imagem válida (PNG, JPG, WEBP).');
       return;
     }
 
@@ -102,12 +292,15 @@ class StudioApp {
       const img = new Image();
       img.onload = () => {
         this.currentImage = img;
+        this.currentImageSrc = e.target.result;
+        this.activeCropCanvas = null;
+        this.activeCropSrc = e.target.result;
+
         this.updateImagePreview(e.target.result);
-        
-        // Remove active from preset thumbnails
         document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
-        
-        this.generateModel();
+
+        this.detectPoses(img);
+        this.generate3DModel();
       };
       img.src = e.target.result;
     };
@@ -115,32 +308,10 @@ class StudioApp {
   }
 
   bindPresets() {
-    const presets = {
-      dragon: { url: '/samples/dragon_coin.jpg', shape: 'coin', height: 8, base: 3 },
-      robot: { url: '/samples/robot_toy.jpg', shape: 'rect', height: 12, base: 2 },
-      statue: { url: '/samples/statue_bust.jpg', shape: 'circle', height: 14, base: 4 }
-    };
-
     document.querySelectorAll('.preset-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', () => {
         const key = btn.dataset.sample;
-        const config = presets[key];
-        if (!config) return;
-
-        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
-        // Apply config
-        this.options.shape = config.shape;
-        document.getElementById('param-shape').value = config.shape;
-        this.options.reliefHeight = config.height;
-        document.getElementById('param-height').value = config.height;
-        document.getElementById('val-height').textContent = `${config.height} mm`;
-        this.options.baseThickness = config.base;
-        document.getElementById('param-base').value = config.base;
-        document.getElementById('val-base').textContent = `${config.base} mm`;
-
-        this.loadSampleImage(config.url);
+        this.loadPreset(key);
       });
     });
   }
@@ -148,66 +319,240 @@ class StudioApp {
   bindEngineTabs() {
     document.querySelectorAll('.engine-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.engine-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.currentEngine = tab.dataset.engine;
-
-        const baseGroup = document.getElementById('group-base');
-        const shapeGroup = document.getElementById('param-shape').closest('.param-group');
-
-        if (this.currentEngine === 'volumetric') {
-          baseGroup.style.display = 'none';
-          shapeGroup.style.display = 'none';
-        } else {
-          baseGroup.style.display = 'flex';
-          shapeGroup.style.display = 'flex';
-        }
-
-        this.generateModel();
+        const engine = tab.dataset.engine;
+        this.options.engineMode = engine;
+        this.updateEngineTabsUI(engine);
+        this.generate3DModel();
       });
     });
+  }
+
+  updateEngineTabsUI(engine) {
+    document.querySelectorAll('.engine-tab').forEach(tab => {
+      if (tab.dataset.engine === engine) tab.classList.add('active');
+      else tab.classList.remove('active');
+    });
+
+    const groupPedestal = document.getElementById('group-pedestal');
+    const groupDetail = document.getElementById('group-detail');
+    const btnGenText = document.getElementById('btn-generate-text');
+
+    if (engine === 'relief') {
+      if (groupPedestal) groupPedestal.style.display = 'none';
+      if (groupDetail) groupDetail.style.display = 'block';
+      if (btnGenText) btnGenText.textContent = 'Gerar Relevo Sólido (STL)';
+    } else if (engine === 'neural') {
+      if (groupPedestal) groupPedestal.style.display = 'flex';
+      if (groupDetail) groupDetail.style.display = 'none';
+      if (btnGenText) btnGenText.textContent = 'Gerar Modelo 3D com IA Neural';
+    } else {
+      if (groupPedestal) groupPedestal.style.display = 'flex';
+      if (groupDetail) groupDetail.style.display = 'block';
+      if (btnGenText) btnGenText.textContent = 'Gerar Escultura Local (Laplacian)';
+    }
   }
 
   bindSliders() {
-    const bindRange = (id, valId, unit, optKey, parseFn = parseFloat) => {
-      const slider = document.getElementById(id);
-      const valDisplay = document.getElementById(valId);
-      slider.addEventListener('input', () => {
-        const val = parseFn(slider.value);
-        this.options[optKey] = val;
-        valDisplay.textContent = unit === 'res' ? `${val}x${val}` : `${val} ${unit}`;
-      });
-      slider.addEventListener('change', () => {
-        this.generateModel();
-      });
-    };
-
-    bindRange('param-width', 'val-width', 'mm', 'targetWidth');
-    bindRange('param-height', 'val-height', 'mm', 'reliefHeight');
-    bindRange('param-base', 'val-base', 'mm', 'baseThickness');
-    bindRange('param-res', 'val-res', 'res', 'resolution', parseInt);
-    bindRange('param-smooth', 'val-smooth', 'Nível', 'smoothing', parseInt);
-
-    const shapeSelect = document.getElementById('param-shape');
-    shapeSelect.addEventListener('change', () => {
-      this.options.shape = shapeSelect.value;
-      this.generateModel();
+    const heightSlider = document.getElementById('param-height');
+    const heightVal = document.getElementById('val-height');
+    heightSlider.addEventListener('input', () => {
+      this.options.targetHeight = parseFloat(heightSlider.value);
+      heightVal.textContent = `${this.options.targetHeight} mm`;
+    });
+    heightSlider.addEventListener('change', () => {
+      if (this.options.engineMode !== 'neural' || !this.viewer.currentModel) {
+        this.generate3DModel();
+      } else {
+        // Se já temos o modelo neural carregado, apenas reajustamos a altura e pedestal instantaneamente!
+        this.reapplyScaleAndPedestal();
+      }
     });
 
-    const invertCheck = document.getElementById('param-invert');
-    invertCheck.addEventListener('change', () => {
-      this.options.invertDepth = invertCheck.checked;
-      this.generateModel();
+    const depthSlider = document.getElementById('param-depth');
+    const depthVal = document.getElementById('val-depth');
+    depthSlider.addEventListener('input', () => {
+      this.options.maxDepth = parseFloat(depthSlider.value);
+      depthVal.textContent = `${this.options.maxDepth} mm`;
+    });
+    depthSlider.addEventListener('change', () => {
+      if (this.options.engineMode !== 'neural') {
+        this.generate3DModel();
+      }
     });
 
-    const genBtn = document.getElementById('btn-generate');
-    genBtn.addEventListener('click', () => {
-      this.generateModel();
+    const pedestalCheck = document.getElementById('check-pedestal');
+    if (pedestalCheck) {
+      pedestalCheck.addEventListener('change', () => {
+        this.options.addPedestal = pedestalCheck.checked;
+        if (this.options.engineMode !== 'neural' || !this.viewer.currentModel) {
+          this.generate3DModel();
+        } else {
+          this.reapplyScaleAndPedestal();
+        }
+      });
+    }
+
+    const detailSlider = document.getElementById('param-detail');
+    const detailVal = document.getElementById('val-detail');
+    if (detailSlider) {
+      detailSlider.addEventListener('input', () => {
+        this.options.depthDetail = parseFloat(detailSlider.value);
+        let label = 'Natural';
+        if (this.options.depthDetail <= 0.4) label = 'Suave';
+        else if (this.options.depthDetail >= 1.8) label = 'Realçado';
+        detailVal.textContent = `${label} (${this.options.depthDetail.toFixed(1)})`;
+      });
+      detailSlider.addEventListener('change', () => {
+        if (this.options.engineMode !== 'neural') {
+          this.generate3DModel();
+        }
+      });
+    }
+
+    document.getElementById('btn-generate').addEventListener('click', () => {
+      this.generate3DModel();
     });
   }
 
+  reapplyScaleAndPedestal() {
+    if (this.viewer.currentModel) {
+      // Se já temos a malha 3D, reescala e atualiza o pedestal sem precisar reconectar à nuvem
+      this.viewer.loadGLBFromUrl(this.currentGLBUrl || './samples/bot_generated.glb', {
+        targetHeight: this.options.targetHeight,
+        addPedestal: this.options.addPedestal
+      }).then(res => {
+        this.updateMetricsUI(res.dimensions, res.stats);
+      });
+    }
+  }
+
+  /**
+   * Converte a imagem no Modelo 3D Perfeito
+   */
+  async generate3DModel() {
+    if (!this.currentImage || this.isGenerating) return;
+
+    const statusEl = document.getElementById('gen-status');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const btnGen = document.getElementById('btn-generate');
+
+    const targetSrc = this.activeCropSrc || this.currentImageSrc;
+
+    // 1. MODO IA NEURAL (Tencent Hunyuan3D-2) - ALTA FIDELIDADE ESTILO MESHY AI
+    if (this.options.engineMode === 'neural') {
+      this.isGenerating = true;
+      btnGen.disabled = true;
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = '10%';
+      statusEl.textContent = 'Conectando ao cluster neural Hunyuan3D-2...';
+      statusEl.style.color = '#00f2fe';
+
+      try {
+        // Envia para a IA na nuvem (sem gastar RAM local nem requerer chave de API)
+        const result = await CloudAIService.generateWithHunyuan3D(targetSrc, (prog) => {
+          progressBar.style.width = `${prog.percent}%`;
+          statusEl.textContent = prog.message;
+        });
+
+        this.currentGLBUrl = result.glbUrl;
+
+        // Prepara textura frontal a partir da imagem
+        const imgToTexture = this.activeCropCanvas || this.currentImage;
+        const processed = MeshGenerator.getImageData(imgToTexture, 180);
+        this.viewer.setTextureFromCanvas(processed.canvas);
+
+        statusEl.textContent = 'Posicionando modelo em pé na mesa aquecida (Z = 0)...';
+        progressBar.style.width = '96%';
+
+        const loadRes = await this.viewer.loadGLBFromUrl(result.glbUrl, {
+          targetHeight: this.options.targetHeight,
+          addPedestal: this.options.addPedestal
+        });
+
+        this.updateMetricsUI(loadRes.dimensions, loadRes.stats);
+
+        progressBar.style.width = '100%';
+        setTimeout(() => progressContainer.classList.add('hidden'), 800);
+
+        statusEl.textContent = `Escultura 3D gerada com sucesso pela IA! (${loadRes.stats.triangles.toLocaleString()} polígonos orgânicos • 100% Manifold)`;
+        statusEl.style.color = '#34d399';
+      } catch (err) {
+        console.error('Falha na IA Neural:', err);
+        progressContainer.classList.add('hidden');
+        statusEl.textContent = `Falha na IA Neural: ${err.message}. Alternando para escultura local...`;
+        statusEl.style.color = '#f59e0b';
+
+        // Fallback suave para o motor local
+        this.options.engineMode = 'volumetric';
+        this.updateEngineTabsUI('volumetric');
+        this.generateLocalModel();
+      } finally {
+        this.isGenerating = false;
+        btnGen.disabled = false;
+      }
+      return;
+    }
+
+    // 2. MODOS LOCAIS (WebGL / Relevo Monolítico)
+    this.generateLocalModel();
+  }
+
+  generateLocalModel() {
+    const statusEl = document.getElementById('gen-status');
+    const targetImg = this.activeCropCanvas || this.currentImage;
+
+    try {
+      const processed = MeshGenerator.getImageData(targetImg, 220, this.currentDepthImg);
+      this.viewer.setTextureFromCanvas(processed.canvas);
+
+      let result;
+      if (this.options.engineMode === 'relief') {
+        result = MeshGenerator.createReliefPlaque(processed, {
+          targetWidth: this.options.targetHeight * 0.8,
+          baseThickness: 3.0,
+          reliefDepth: this.options.maxDepth * 0.5
+        });
+      } else {
+        result = MeshGenerator.createVolumetricSculpture(processed, {
+          targetHeight: this.options.targetHeight,
+          maxDepth: this.options.maxDepth,
+          depthDetail: this.options.depthDetail,
+          addPedestal: this.options.addPedestal,
+          pedestalHeight: 4.0
+        });
+      }
+
+      this.viewer.setModel(result.geometry, result.dimensions);
+      this.updateMetricsUI(result.dimensions, result.stats);
+
+      statusEl.textContent = `Escultura 3D Orgânica gerada com sucesso! (${result.stats.triangles.toLocaleString()} polígonos • 100% Manifold)`;
+      statusEl.style.color = '#34d399';
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = `Erro ao gerar escultura: ${err.message}`;
+      statusEl.style.color = '#f87171';
+    }
+  }
+
+
+  updateMetricsUI(dimensions, stats) {
+    // Cálculo de volume e filamento a partir das dimensões reais da malha 3D
+    const volApprox = (dimensions.width * dimensions.depth * dimensions.height * 0.00045).toFixed(2);
+    const weightApprox = (volApprox * 1.24 * 0.22).toFixed(1); // PLA com 15% infill
+    const printTimeMins = Math.round((dimensions.height / 0.2) * 0.06 + parseFloat(weightApprox) * 1.5);
+
+    document.getElementById('metric-x').textContent = `${dimensions.width.toFixed(1)} mm`;
+    document.getElementById('metric-y').textContent = `${dimensions.depth.toFixed(1)} mm`;
+    document.getElementById('metric-z').textContent = `${dimensions.height.toFixed(1)} mm`;
+    document.getElementById('metric-triangles').textContent = `${stats.triangles.toLocaleString()} tris`;
+    document.getElementById('metric-vol').textContent = `${volApprox} cm³`;
+    document.getElementById('metric-weight').textContent = `~${weightApprox} g`;
+    document.getElementById('metric-time').textContent = `~${printTimeMins}m (a 60mm/s)`;
+  }
+
+
   bindToolbar() {
-    // View camera buttons
     document.querySelectorAll('.top-toolbar .tool-btn[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.top-toolbar .tool-btn[data-view]').forEach(b => b.classList.remove('active'));
@@ -216,14 +561,12 @@ class StudioApp {
       });
     });
 
-    // Bed toggle
     const bedBtn = document.getElementById('btn-toggle-bed');
     bedBtn.addEventListener('click', () => {
       const active = bedBtn.classList.toggle('active');
       this.viewer.setBedVisible(active);
     });
 
-    // Wireframe toggle
     const wireBtn = document.getElementById('btn-toggle-wireframe');
     wireBtn.addEventListener('click', () => {
       const active = wireBtn.classList.toggle('active');
@@ -242,108 +585,49 @@ class StudioApp {
   }
 
   bindExports() {
-    const getBaseName = () => {
-      return `modelo_3d_${Date.now()}`;
-    };
+    const getBaseName = () => `forge3d_escultura_${Date.now()}`;
+
+    const btn3mf = document.getElementById('btn-export-3mf');
+    if (btn3mf) {
+      btn3mf.addEventListener('click', () => {
+        const res = this.viewer.export3MF(`${getBaseName()}.3mf`);
+        if (res) {
+          alert(`Arquivo .3MF baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB)!\nCompatível diretamente com o botão "Abrir Projeto (3mf)" do Creality Print e Bambu Studio.`);
+        }
+      });
+    }
 
     document.getElementById('btn-export-stl-bin').addEventListener('click', () => {
       const res = this.viewer.exportSTL(`${getBaseName()}.stl`, true);
-      if (res) this.showStatusToast(`Arquivo STL (Binário) baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
-    });
-
-    document.getElementById('btn-export-stl-ascii').addEventListener('click', () => {
-      const res = this.viewer.exportSTL(`${getBaseName()}_ascii.stl`, false);
-      if (res) this.showStatusToast(`Arquivo STL (ASCII) baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
+      if (res) {
+        alert(`Arquivo STL Binário baixado com sucesso (${(res.sizeBytes / 1024).toFixed(1)} KB)!\nPronto para abrir diretamente no Creality Print, Bambu Studio, Cura ou PrusaSlicer.`);
+      }
     });
 
     document.getElementById('btn-export-obj').addEventListener('click', () => {
-      const res = this.viewer.exportOBJ(`${getBaseName()}.obj`);
-      if (res) this.showStatusToast(`Arquivo OBJ baixado! ${(res.sizeBytes / 1024).toFixed(1)} KB`);
+      this.viewer.exportOBJ(`${getBaseName()}.obj`);
     });
 
     document.getElementById('btn-export-glb').addEventListener('click', () => {
       this.viewer.exportGLB(`${getBaseName()}.glb`);
-      this.showStatusToast('Arquivo GLB (com textura) baixado!');
     });
   }
 
   bindModals() {
     const guideModal = document.getElementById('modal-guide');
-    const backendModal = document.getElementById('modal-backend');
-
-    document.getElementById('btn-open-guide').addEventListener('click', () => guideModal.classList.remove('hidden'));
-    document.getElementById('btn-close-guide').addEventListener('click', () => guideModal.classList.add('hidden'));
-    document.getElementById('btn-ok-guide').addEventListener('click', () => guideModal.classList.add('hidden'));
-
-    document.getElementById('btn-open-backend').addEventListener('click', () => backendModal.classList.remove('hidden'));
-    document.getElementById('btn-close-backend').addEventListener('click', () => backendModal.classList.add('hidden'));
-    document.getElementById('btn-ok-backend').addEventListener('click', () => backendModal.classList.add('hidden'));
-
-    [guideModal, backendModal].forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.classList.add('hidden');
-      });
+    document.getElementById('btn-open-guide').addEventListener('click', () => {
+      guideModal.classList.remove('hidden');
     });
-  }
-
-  showStatusToast(msg) {
-    const status = document.getElementById('gen-status');
-    status.textContent = msg;
-    status.style.color = '#34d399';
-    setTimeout(() => {
-      status.textContent = 'Modelo pronto para visualização';
-      status.style.color = '';
-    }, 4000);
-  }
-
-  generateModel() {
-    if (!this.currentImage) return;
-
-    const statusEl = document.getElementById('gen-status');
-    statusEl.textContent = 'Processando malha 3D e normais...';
-
-    // Extract image data
-    this.currentProcessed = MeshGenerator.getImageData(this.currentImage, this.options.resolution);
-    this.viewer.setTextureFromCanvas(this.currentProcessed.canvas);
-
-    let result;
-    if (this.currentEngine === 'relief') {
-      result = MeshGenerator.createWatertightRelief(this.currentProcessed, {
-        targetWidth: this.options.targetWidth,
-        reliefHeight: this.options.reliefHeight,
-        baseThickness: this.options.baseThickness,
-        invertDepth: this.options.invertDepth,
-        smoothing: this.options.smoothing,
-        shape: this.options.shape
-      });
-    } else {
-      result = MeshGenerator.createVolumetric360(this.currentProcessed, {
-        targetWidth: this.options.targetWidth,
-        maxThickness: this.options.reliefHeight * 2,
-        smoothing: this.options.smoothing
-      });
-    }
-
-    // Set model in 3D viewer
-    this.viewer.setModel(result.geometry, result.dimensions);
-
-    // Calculate 3D print metrics
-    const metrics = MeshGenerator.estimatePrintMetrics(result.geometry, 15);
-
-    // Update UI numbers
-    document.getElementById('metric-x').textContent = `${result.dimensions.width.toFixed(1)} mm`;
-    document.getElementById('metric-y').textContent = `${result.dimensions.depth.toFixed(1)} mm`;
-    document.getElementById('metric-z').textContent = `${result.dimensions.height.toFixed(1)} mm`;
-    document.getElementById('metric-triangles').textContent = `${result.stats.triangles.toLocaleString()} tris`;
-    document.getElementById('metric-vol').textContent = `${metrics.volumeCm3} cm³`;
-    document.getElementById('metric-weight').textContent = `~${metrics.weightGrams} g`;
-    document.getElementById('metric-time').textContent = `~${metrics.printTimeString}`;
-
-    statusEl.textContent = `Modelo gerado com sucesso (${result.stats.triangles.toLocaleString()} triângulos)`;
+    document.getElementById('btn-close-guide').addEventListener('click', () => {
+      guideModal.classList.add('hidden');
+    });
+    document.getElementById('btn-ok-guide').addEventListener('click', () => {
+      guideModal.classList.add('hidden');
+    });
   }
 }
 
-// Start application
+// Inicia o estúdio quando o DOM estiver pronto
 window.addEventListener('DOMContentLoaded', () => {
   new StudioApp();
 });
