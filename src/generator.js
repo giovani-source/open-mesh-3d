@@ -10,230 +10,196 @@ export class MeshGenerator {
    * Processamento e segmentação inteligente de imagem com Flood-Fill a partir das bordas externas
    * Preserva cabelos pretos, sombras de botas, olhos e detalhes escuros sem apagar o personagem
    */
-  static getImageData(image, targetResolution = 180) {
-    const canvas = document.createElement('canvas');
-    let width = targetResolution;
-    let height = Math.round(targetResolution * (image.naturalHeight / image.naturalWidth));
+  static getImageData(image, targetResolution = 200) {
+    // 1. Renderiza a imagem original em alta fidelidade para análise
+    const srcW = image.naturalWidth || image.width || 300;
+    const srcH = image.naturalHeight || image.height || 300;
+    const rawCanvas = document.createElement('canvas');
+    rawCanvas.width = srcW;
+    rawCanvas.height = srcH;
+    const rawCtx = rawCanvas.getContext('2d', { willReadFrequently: true });
+    rawCtx.drawImage(image, 0, 0);
 
-    // Limites de proporção razoáveis
-    if (height > targetResolution * 2.2) {
-      height = Math.round(targetResolution * 2.2);
-    } else if (height < targetResolution * 0.45) {
-      height = Math.round(targetResolution * 0.45);
+    const rawImgData = rawCtx.getImageData(0, 0, srcW, srcH);
+    const rawData = rawImgData.data;
+
+    // 2. Análise de Cores: Encontrar candidatos a fundo (transparência, bordas de screenshot e cor da folha/papel)
+    const colorBins = new Map();
+    let transCount = 0;
+
+    for (let i = 0; i < srcW * srcH; i++) {
+      const a = rawData[i * 4 + 3];
+      if (a < 50) {
+        transCount++;
+        continue;
+      }
+      const r = Math.floor(rawData[i * 4] / 20) * 20;
+      const g = Math.floor(rawData[i * 4 + 1] / 20) * 20;
+      const b = Math.floor(rawData[i * 4 + 2] / 20) * 20;
+      const key = `${r},${g},${b}`;
+      colorBins.set(key, (colorBins.get(key) || 0) + 1);
     }
 
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(image, 0, 0, width, height);
+    // Identificar cores de fundo dominantes (papel branco, fundo escuro de app, cinza de foto)
+    const sortedBins = Array.from(colorBins.entries()).sort((a, b) => b[1] - a[1]);
+    const bgCandidates = [];
 
-    const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
-
-    const depthMap = new Float32Array(width * height);
-    const rawMask = new Uint8Array(width * height);
-
-    // 1. Amostrar bordas externas para detectar a cor média do fundo
-    let bgR = 0, bgG = 0, bgB = 0, borderCount = 0;
+    // Amostras das bordas externas
     const borderSamples = [];
-
-    const addSample = (x, y) => {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const a = data[idx + 3];
-      if (a > 40) {
-        borderSamples.push({ r, g, b });
-        bgR += r;
-        bgG += g;
-        bgB += b;
-        borderCount++;
+    const samplePixel = (x, y) => {
+      const idx = (y * srcW + x) * 4;
+      if (rawData[idx + 3] > 40) {
+        borderSamples.push({ r: rawData[idx], g: rawData[idx + 1], b: rawData[idx + 2] });
       }
     };
-
-    for (let x = 0; x < width; x++) {
-      addSample(x, 0);
-      addSample(x, height - 1);
+    for (let x = 0; x < srcW; x += 4) {
+      samplePixel(x, 0);
+      samplePixel(x, srcH - 1);
     }
-    for (let y = 1; y < height - 1; y++) {
-      addSample(0, y);
-      addSample(width - 1, y);
-    }
-
-    if (borderCount > 0) {
-      bgR /= borderCount;
-      bgG /= borderCount;
-      bgB /= borderCount;
+    for (let y = 0; y < srcH; y += 4) {
+      samplePixel(0, y);
+      samplePixel(srcW - 1, y);
     }
 
-    // Calcular desvio padrão do fundo para tolerância adaptativa
-    let variance = 0;
-    for (let s of borderSamples) {
-      const d = Math.sqrt((s.r - bgR) ** 2 + (s.g - bgG) ** 2 + (s.b - bgB) ** 2);
-      variance += d;
-    }
-    const avgDev = borderSamples.length > 0 ? variance / borderSamples.length : 15;
-    const colorTolerance = Math.min(50, Math.max(26, avgDev * 2.2));
-
-    // 2. Flood Fill (BFS) iniciando exclusivamente a partir das 4 bordas externas
-    const isBg = new Uint8Array(width * height);
-    const queue = [];
-
-    const isColorSimilarToBg = (idx) => {
-      const a = data[idx * 4 + 3];
-      if (a < 50) return true; // Transparência
-      const r = data[idx * 4];
-      const g = data[idx * 4 + 1];
-      const b = data[idx * 4 + 2];
-      const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
-      return dist <= colorTolerance;
-    };
-
-    // Inicializar fila com as 4 bordas
-    for (let x = 0; x < width; x++) {
-      const topIdx = 0 * width + x;
-      const botIdx = (height - 1) * width + x;
-      if (isColorSimilarToBg(topIdx)) {
-        isBg[topIdx] = 1;
-        queue.push(topIdx);
-      }
-      if (isColorSimilarToBg(botIdx)) {
-        isBg[botIdx] = 1;
-        queue.push(botIdx);
-      }
-    }
-    for (let y = 1; y < height - 1; y++) {
-      const leftIdx = y * width + 0;
-      const rightIdx = y * width + (width - 1);
-      if (isColorSimilarToBg(leftIdx)) {
-        isBg[leftIdx] = 1;
-        queue.push(leftIdx);
-      }
-      if (isColorSimilarToBg(rightIdx)) {
-        isBg[rightIdx] = 1;
-        queue.push(rightIdx);
-      }
+    if (borderSamples.length > 0) {
+      let br = 0, bg = 0, bb = 0;
+      for (let s of borderSamples) { br += s.r; bg += s.g; bb += s.b; }
+      bgCandidates.push({ r: br / borderSamples.length, g: bg / borderSamples.length, b: bb / borderSamples.length, tol: 40 });
     }
 
-    let head = 0;
-    while (head < queue.length) {
-      const curr = queue[head++];
-      const cx = curr % width;
-      const cy = Math.floor(curr / width);
-
-      const neighbors = [
-        cx > 0 ? cy * width + (cx - 1) : -1,
-        cx < width - 1 ? cy * width + (cx + 1) : -1,
-        cy > 0 ? (cy - 1) * width + cx : -1,
-        cy < height - 1 ? (cy + 1) * width + cx : -1
-      ];
-
-      for (let n of neighbors) {
-        if (n !== -1 && isBg[n] === 0) {
-          if (isColorSimilarToBg(n)) {
-            isBg[n] = 1;
-            queue.push(n);
+    // Cores dominantes com mais de 15% da imagem que pareçam papel/fundo claro ou neutro
+    for (let [key, count] of sortedBins.slice(0, 4)) {
+      if (count > (srcW * srcH) * 0.12) {
+        const [r, g, b] = key.split(',').map(Number);
+        const brightness = (r + g + b) / 3;
+        // Se for muito claro (> 195), muito escuro (< 45), ou cobrir mais de 35% da tela
+        if (brightness > 190 || brightness < 45 || count > (srcW * srcH) * 0.35) {
+          const already = bgCandidates.some(c => Math.sqrt((c.r - r)**2 + (c.g - g)**2 + (c.b - b)**2) < 35);
+          if (!already) {
+            bgCandidates.push({ r, g, b, tol: 42 });
           }
         }
       }
     }
 
-    // 3. Tudo o que não foi marcado como fundo conectado à borda é Primeiro Plano
-    for (let i = 0; i < width * height; i++) {
-      const r = data[i * 4];
-      const g = data[i * 4 + 1];
-      const b = data[i * 4 + 2];
-      const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      depthMap[i] = lum;
-      rawMask[i] = isBg[i] === 1 ? 0 : 1;
-    }
+    // 3. Segmentação em alta resolução: Marcar pixels de Primeiro Plano
+    const rawIsFg = new Uint8Array(srcW * srcH);
+    let minX = srcW, maxX = 0, minY = srcH, maxY = 0;
+    let fgTotal = 0;
 
-    // 4. Fechamento morfológico de micro-ruídos
-    const tempMask = new Uint8Array(width * height);
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const idx = y * width + x;
-        if (rawMask[idx] === 1) {
-          tempMask[idx] = 1;
-        } else {
-          let count = 0;
-          for (let dy = -1; dy <= 1; dy++) {
-            for (let dx = -1; dx <= 1; dx++) {
-              if (rawMask[(y + dy) * width + (x + dx)] === 1) count++;
-            }
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        const idx = (y * srcW + x) * 4;
+        const a = rawData[idx + 3];
+        if (a < 50) continue;
+
+        const r = rawData[idx];
+        const g = rawData[idx + 1];
+        const b = rawData[idx + 2];
+
+        let isBg = false;
+        for (let cand of bgCandidates) {
+          const d = Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2);
+          if (d <= cand.tol) {
+            isBg = true;
+            break;
           }
-          tempMask[idx] = count >= 6 ? 1 : 0;
         }
-      }
-    }
 
-    // 5. Extrair o Maior Componente Conectado (Elimina linhas tracejadas, poeira e marcas de corte)
-    const labels = new Int32Array(width * height).fill(0);
-    let currentLabel = 1;
-    const componentSizes = [0];
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = y * width + x;
-        if (tempMask[idx] === 1 && labels[idx] === 0) {
-          // Iniciar BFS para marcar componente
-          let size = 0;
-          const compQueue = [idx];
-          labels[idx] = currentLabel;
-
-          let qHead = 0;
-          while (qHead < compQueue.length) {
-            const p = compQueue[qHead++];
-            size++;
-            const px = p % width;
-            const py = Math.floor(p / width);
-
-            const nbs = [
-              px > 0 ? py * width + (px - 1) : -1,
-              px < width - 1 ? py * width + (px + 1) : -1,
-              py > 0 ? (py - 1) * width + px : -1,
-              py < height - 1 ? (py + 1) * width + px : -1
-            ];
-
-            for (let nb of nbs) {
-              if (nb !== -1 && tempMask[nb] === 1 && labels[nb] === 0) {
-                labels[nb] = currentLabel;
-                compQueue.push(nb);
-              }
-            }
-          }
-
-          componentSizes[currentLabel] = size;
-          currentLabel++;
-        }
-      }
-    }
-
-    // Encontrar o maior componente
-    let maxCompIdx = 1;
-    let maxCompSize = 0;
-    for (let c = 1; c < componentSizes.length; c++) {
-      if (componentSizes[c] > maxCompSize) {
-        maxCompSize = componentSizes[c];
-        maxCompIdx = c;
-      }
-    }
-
-    // Máscara final com o personagem isolado
-    const mask = new Uint8Array(width * height);
-    let minX = width, maxX = 0, minY = height, maxY = 0;
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = y * width + x;
-        if (labels[idx] === maxCompIdx) {
-          mask[idx] = 1;
+        if (!isBg) {
+          rawIsFg[y * srcW + x] = 1;
+          fgTotal++;
           minX = Math.min(minX, x);
           maxX = Math.max(maxX, x);
           minY = Math.min(minY, y);
           maxY = Math.max(maxY, y);
         }
+      }
+    }
+
+    // Fallback: se nenhum pixel foi isolado ou se tudo virou primeiro plano, usa luminosidade adaptativa
+    if (fgTotal < 20 || fgTotal > srcW * srcH * 0.95) {
+      minX = srcW; maxX = 0; minY = srcH; maxY = 0;
+      for (let y = 0; y < srcH; y++) {
+        for (let x = 0; x < srcW; x++) {
+          const idx = (y * srcW + x) * 4;
+          const lum = (0.299 * rawData[idx] + 0.587 * rawData[idx + 1] + 0.114 * rawData[idx + 2]);
+          if (lum < 235 && rawData[idx + 3] > 50) {
+            rawIsFg[y * srcW + x] = 1;
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+          }
+        }
+      }
+    }
+
+    // Limites de recorte com margem de segurança (padding)
+    const padX = Math.max(4, Math.round((maxX - minX) * 0.04));
+    const padY = Math.max(4, Math.round((maxY - minY) * 0.04));
+    const cropX = Math.max(0, minX - padX);
+    const cropY = Math.max(0, minY - padY);
+    const cropW = Math.min(srcW - cropX, (maxX - minX) + padX * 2);
+    const cropH = Math.min(srcH - cropY, (maxY - minY) + padY * 2);
+
+    // 4. Reamostragem em resolução de alta fidelidade suave (targetResolution)
+    const aspect = cropH / Math.max(1, cropW);
+    let width = targetResolution;
+    let height = Math.round(targetResolution * aspect);
+
+    if (height > targetResolution * 2.2) height = Math.round(targetResolution * 2.2);
+    if (height < targetResolution * 0.45) height = Math.round(targetResolution * 0.45);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Desenha o personagem recortado perfeitamente centralizado
+    ctx.drawImage(rawCanvas, cropX, cropY, cropW, cropH, 0, 0, width, height);
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+
+    const depthMap = new Float32Array(width * height);
+    const mask = new Uint8Array(width * height);
+
+    let finalMinX = width, finalMaxX = 0, finalMinY = height, finalMaxY = 0;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        const r = data[idx * 4];
+        const g = data[idx * 4 + 1];
+        const b = data[idx * 4 + 2];
+        const a = data[idx * 4 + 3];
+
+        let isBg = false;
+        if (a < 50) {
+          isBg = true;
+        } else {
+          for (let cand of bgCandidates) {
+            const d = Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2);
+            if (d <= cand.tol) {
+              isBg = true;
+              break;
+            }
+          }
+        }
+
+        if (!isBg) {
+          mask[idx] = 1;
+          finalMinX = Math.min(finalMinX, x);
+          finalMaxX = Math.max(finalMaxX, x);
+          finalMinY = Math.min(finalMinY, y);
+          finalMaxY = Math.max(finalMaxY, y);
+        }
+
+        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        depthMap[idx] = lum;
       }
     }
 
@@ -259,10 +225,10 @@ export class MeshGenerator {
       mask,
       canvas,
       bounds: {
-        minX: Math.max(0, minX),
-        maxX: Math.min(width - 1, maxX),
-        minY: Math.max(0, minY),
-        maxY: Math.min(height - 1, maxY)
+        minX: Math.max(0, finalMinX),
+        maxX: Math.min(width - 1, finalMaxX),
+        minY: Math.max(0, finalMinY),
+        maxY: Math.min(height - 1, finalMaxY)
       }
     };
   }
@@ -560,7 +526,7 @@ export class MeshGenerator {
     }
 
     // 5. Suavização Laplaciana 3D para dissolver qualquer aresta serrilhada em curvaturas orgânicas
-    this.applyLaplacianSmoothing(positions, indices, 4, 0.46);
+    this.applyLaplacianSmoothing(positions, indices, 6, 0.50);
 
 
     // 5. Pedestal de Apoio Integrado (Sólido para Mesa Aquecida Z = 0)

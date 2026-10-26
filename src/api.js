@@ -20,7 +20,9 @@ export class CloudAIService {
 
     onProgress({ stage: 'uploading', percent: 25, message: 'Enviando imagem para a IA...' });
 
-    const app = await Client.connect('frogleo/Image-to-3D');
+    const hfToken = this.getStoredHfToken();
+    const connectOpts = hfToken ? { hf_token: hfToken } : {};
+    const app = await Client.connect('frogleo/Image-to-3D', connectOpts);
     
     onProgress({ stage: 'generating', percent: 45, message: 'IA esculpindo anatomia 360° com redes neurais...' });
 
@@ -70,6 +72,18 @@ export class CloudAIService {
     } catch (err) {
       clearInterval(interval);
       throw err;
+    }
+  }
+
+  static getStoredHfToken() {
+    return localStorage.getItem('forge3d_hf_token') || '';
+  }
+
+  static setStoredHfToken(token) {
+    if (token) {
+      localStorage.setItem('forge3d_hf_token', token.trim());
+    } else {
+      localStorage.removeItem('forge3d_hf_token');
     }
   }
 

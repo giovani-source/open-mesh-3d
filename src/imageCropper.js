@@ -20,18 +20,31 @@ export class CharacterSheetDetector {
     const imgData = ctx.getImageData(0, 0, w, h);
     const data = imgData.data;
 
-    // Detectar cor média do fundo pelas 4 bordas
+    // Detectar cores de fundo: bordas externas e cor predominante de papel/fundo
+    const colorBins = new Map();
+    for (let i = 0; i < w * h; i++) {
+      if (data[i * 4 + 3] < 40) continue;
+      const r = Math.floor(data[i * 4] / 20) * 20;
+      const g = Math.floor(data[i * 4 + 1] / 20) * 20;
+      const b = Math.floor(data[i * 4 + 2] / 20) * 20;
+      const key = `${r},${g},${b}`;
+      colorBins.set(key, (colorBins.get(key) || 0) + 1);
+    }
+
+    const sortedBins = Array.from(colorBins.entries()).sort((a, b) => b[1] - a[1]);
+    const bgCandidates = [];
+
+    // Amostrar bordas externas
     let bgR = 0, bgG = 0, bgB = 0, sampleCount = 0;
     const addSample = (x, y) => {
       const idx = (y * w + x) * 4;
-      if (data[idx + 3] > 30) {
+      if (data[idx + 3] > 40) {
         bgR += data[idx];
         bgG += data[idx + 1];
         bgB += data[idx + 2];
         sampleCount++;
       }
     };
-
     for (let x = 0; x < w; x += 3) {
       addSample(x, 0);
       addSample(x, h - 1);
@@ -42,11 +55,21 @@ export class CharacterSheetDetector {
     }
 
     if (sampleCount > 0) {
-      bgR /= sampleCount;
-      bgG /= sampleCount;
-      bgB /= sampleCount;
-    } else {
-      bgR = 255; bgG = 255; bgB = 255;
+      bgCandidates.push({ r: bgR / sampleCount, g: bgG / sampleCount, b: bgB / sampleCount, tol: 38 });
+    }
+
+    // Cores dominantes (> 15%) de papel claro ou fundo
+    for (let [key, count] of sortedBins.slice(0, 3)) {
+      if (count > (w * h) * 0.15) {
+        const [r, g, b] = key.split(',').map(Number);
+        const brightness = (r + g + b) / 3;
+        if (brightness > 190 || brightness < 45 || count > (w * h) * 0.35) {
+          const exists = bgCandidates.some(c => Math.sqrt((c.r - r)**2 + (c.g - g)**2 + (c.b - b)**2) < 35);
+          if (!exists) {
+            bgCandidates.push({ r, g, b, tol: 40 });
+          }
+        }
+      }
     }
 
     const isForeground = (x, y) => {
@@ -56,8 +79,12 @@ export class CharacterSheetDetector {
       const r = data[idx];
       const g = data[idx + 1];
       const b = data[idx + 2];
-      const dist = Math.sqrt((r - bgR) ** 2 + (g - bgG) ** 2 + (b - bgB) ** 2);
-      return dist > 35;
+
+      for (let cand of bgCandidates) {
+        const dist = Math.sqrt((r - cand.r) ** 2 + (g - cand.g) ** 2 + (b - cand.b) ** 2);
+        if (dist <= cand.tol) return false;
+      }
+      return true;
     };
 
     // Histograma horizontal de colunas com pixels visíveis
