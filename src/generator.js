@@ -183,73 +183,72 @@ export class MeshGenerator {
       }
     }
 
-    // 5. Máscara Hermética 100% Confiável
+    // 5. Segmentação Hermética Confiável
+    let edgeR = 0, edgeG = 0, edgeB = 0, edgeCount = 0;
+    const addEdgeSample = (px, py) => {
+      const idx = (py * width + px) * 4;
+      if (data[idx + 3] > 30) {
+        edgeR += data[idx]; edgeG += data[idx + 1]; edgeB += data[idx + 2];
+        edgeCount++;
+      }
+    };
+    for (let x = 0; x < width; x++) { addEdgeSample(x, 0); addEdgeSample(x, height - 1); }
+    for (let y = 1; y < height - 1; y++) { addEdgeSample(0, y); addEdgeSample(width - 1, y); }
+    if (edgeCount > 0) { edgeR /= edgeCount; edgeG /= edgeCount; edgeB /= edgeCount; }
+    else { edgeR = 20; edgeG = 20; edgeB = 20; }
+
+    const isPixelBackground = (idx) => {
+      if (data[idx * 4 + 3] < 50) return true;
+      const r = data[idx * 4], g = data[idx * 4 + 1], b = data[idx * 4 + 2];
+      if (Math.sqrt((r - edgeR)**2 + (g - edgeG)**2 + (b - edgeB)**2) <= 32) return true;
+      for (let cand of bgCandidates) {
+        if (Math.sqrt((r - cand.r)**2 + (g - cand.g)**2 + (b - cand.b)**2) <= cand.tol) return true;
+      }
+      return false;
+    };
+
+    const isBgConnected = new Uint8Array(width * height);
+    const bgQueue = [];
+    for (let x = 0; x < width; x++) {
+      const topIdx = 0 * width + x;
+      const botIdx = (height - 1) * width + x;
+      if (isPixelBackground(topIdx)) { isBgConnected[topIdx] = 1; bgQueue.push(topIdx); }
+      if (isPixelBackground(botIdx)) { isBgConnected[botIdx] = 1; bgQueue.push(botIdx); }
+    }
+    for (let y = 1; y < height - 1; y++) {
+      const leftIdx = y * width + 0;
+      const rightIdx = y * width + (width - 1);
+      if (isPixelBackground(leftIdx)) { isBgConnected[leftIdx] = 1; bgQueue.push(leftIdx); }
+      if (isPixelBackground(rightIdx)) { isBgConnected[rightIdx] = 1; bgQueue.push(rightIdx); }
+    }
+
+    let qHead = 0;
+    while (qHead < bgQueue.length) {
+      const curr = bgQueue[qHead++];
+      const cx = curr % width;
+      const cy = Math.floor(curr / width);
+      const neighbors = [
+        cx > 0 ? cy * width + (cx - 1) : -1,
+        cx < width - 1 ? cy * width + (cx + 1) : -1,
+        cy > 0 ? (cy - 1) * width + cx : -1,
+        cy < height - 1 ? (cy + 1) * width + cx : -1
+      ];
+      for (let n of neighbors) {
+        if (n !== -1 && isBgConnected[n] === 0 && isPixelBackground(n)) {
+          isBgConnected[n] = 1;
+          bgQueue.push(n);
+        }
+      }
+    }
+
     let rawFg = new Uint8Array(width * height);
-
-    if (depthRawData) {
-      // Se temos o mapa neural de profundidade, usamos sua segmentação precisa sem artefatos
-      for (let i = 0; i < width * height; i++) {
-        rawFg[i] = depthRawData[i * 4] > 20 ? 1 : 0;
-      }
-    } else {
-      let edgeR = 0, edgeG = 0, edgeB = 0, edgeCount = 0;
-      const addEdgeSample = (px, py) => {
-        const idx = (py * width + px) * 4;
-        if (data[idx + 3] > 30) {
-          edgeR += data[idx]; edgeG += data[idx + 1]; edgeB += data[idx + 2];
-          edgeCount++;
-        }
-      };
-      for (let x = 0; x < width; x++) { addEdgeSample(x, 0); addEdgeSample(x, height - 1); }
-      for (let y = 1; y < height - 1; y++) { addEdgeSample(0, y); addEdgeSample(width - 1, y); }
-      if (edgeCount > 0) { edgeR /= edgeCount; edgeG /= edgeCount; edgeB /= edgeCount; }
-      else { edgeR = 20; edgeG = 20; edgeB = 20; }
-
-      const isPixelBackground = (idx) => {
-        if (data[idx * 4 + 3] < 50) return true;
-        const r = data[idx * 4], g = data[idx * 4 + 1], b = data[idx * 4 + 2];
-        if (Math.sqrt((r - edgeR)**2 + (g - edgeG)**2 + (b - edgeB)**2) <= 36) return true;
-        for (let cand of bgCandidates) {
-          if (Math.sqrt((r - cand.r)**2 + (g - cand.g)**2 + (b - cand.b)**2) <= cand.tol) return true;
-        }
-        return false;
-      };
-
-      const isBgConnected = new Uint8Array(width * height);
-      const bgQueue = [];
-      for (let x = 0; x < width; x++) {
-        const topIdx = 0 * width + x;
-        const botIdx = (height - 1) * width + x;
-        if (isPixelBackground(topIdx)) { isBgConnected[topIdx] = 1; bgQueue.push(topIdx); }
-        if (isPixelBackground(botIdx)) { isBgConnected[botIdx] = 1; bgQueue.push(botIdx); }
-      }
-      for (let y = 1; y < height - 1; y++) {
-        const leftIdx = y * width + 0;
-        const rightIdx = y * width + (width - 1);
-        if (isPixelBackground(leftIdx)) { isBgConnected[leftIdx] = 1; bgQueue.push(leftIdx); }
-        if (isPixelBackground(rightIdx)) { isBgConnected[rightIdx] = 1; bgQueue.push(rightIdx); }
-      }
-
-      let qHead = 0;
-      while (qHead < bgQueue.length) {
-        const curr = bgQueue[qHead++];
-        const cx = curr % width;
-        const cy = Math.floor(curr / width);
-        const neighbors = [
-          cx > 0 ? cy * width + (cx - 1) : -1,
-          cx < width - 1 ? cy * width + (cx + 1) : -1,
-          cy > 0 ? (cy - 1) * width + cx : -1,
-          cy < height - 1 ? (cy + 1) * width + cx : -1
-        ];
-        for (let n of neighbors) {
-          if (n !== -1 && isBgConnected[n] === 0 && isPixelBackground(n)) {
-            isBgConnected[n] = 1;
-            bgQueue.push(n);
-          }
-        }
-      }
-
-      for (let i = 0; i < width * height; i++) {
+    for (let i = 0; i < width * height; i++) {
+      const isBg = isBgConnected[i] === 1 || isPixelBackground(i);
+      if (isBg) {
+        rawFg[i] = 0;
+      } else if (depthRawData && depthRawData[i * 4] > 20) {
+        rawFg[i] = 1;
+      } else {
         rawFg[i] = isBgConnected[i] === 0 ? 1 : 0;
       }
     }
@@ -324,21 +323,6 @@ export class MeshGenerator {
       }
     }
 
-    // Garantir base sólida sem mordidas ou furos nas últimas linhas da silhueta
-    for (let y = Math.floor(finalMaxY - height * 0.05); y <= finalMaxY; y++) {
-      let rowMin = width, rowMax = 0;
-      for (let x = finalMinX; x <= finalMaxX; x++) {
-        if (labels[y * width + x] === maxCompIdx) {
-          rowMin = Math.min(rowMin, x);
-          rowMax = Math.max(rowMax, x);
-        }
-      }
-      if (rowMin <= rowMax) {
-        for (let x = rowMin; x <= rowMax; x++) {
-          mask[y * width + x] = 1;
-        }
-      }
-    }
 
     // Normalização e Suavização Gaussiana do Mapa de Profundidade Neural 3D
     let minD = 255, maxD = 0;
@@ -627,7 +611,7 @@ export class MeshGenerator {
     const zBaseOffset = addPedestal ? 2.0 : 0;
     const usableHeight = targetHeight - zBaseOffset;
 
-    // 1. Vértices da Frente (Anatomia Tridimensional Contínua: Nariz Saliente, Órbitas Recuadas, Barba)
+    // 1. Vértices da Frente (Anatomia Tridimensional Contínua: Nariz Saliente, Órbitas Recuadas, Músculos)
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
@@ -635,35 +619,39 @@ export class MeshGenerator {
 
         const dNorm = Math.min(1.0, dt[idx] / maxDist);
 
-        // Base sólida: nos últimos 12% da base, mantém espessura total sem afinar para faca
+        // Base sólida: apenas se pedestal estiver habilitado (evita criar paredes em pés/capas de personagens)
         const distFromBottom = maxY - y;
         const bottomZone = Math.max(4, Math.round(charH * 0.12));
-        const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
+        const baseBlend = addPedestal ? Math.max(0, 1.0 - (distFromBottom / bottomZone)) : 0;
 
         const edgeT = Math.min(1.0, dNorm * 3.5);
         const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
         const edgeFade = edgeFadeRaw * (1.0 - baseBlend) + 1.0 * baseBlend;
 
         // Volume anatômico contínuo do crânio, pescoço e tórax
-        const baseDome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
-        const baseVolume = baseDome * (maxDepth * 0.52);
+        const baseDome = Math.sin(Math.min(1.0, dNorm * 1.35) * (Math.PI / 2)) ** 0.70;
+        const baseVolume = baseDome * (maxDepth * 0.50);
 
-        // Geometria da base sólida na mesa de impressão (sem afinar para lâmina)
-        const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
-        const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
-        const solidBaseFront = (maxDepth * 0.50) * Math.max(0.35, lateralFade);
-        const solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
+        // Geometria da base sólida na mesa de impressão (apenas quando pedestal está ativo)
+        let solidBaseFront = 0;
+        let solidBaseBack = 0;
+        if (addPedestal) {
+          const bottomSpan = charW * 0.5;
+          const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
+          const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
+          solidBaseFront = (maxDepth * 0.50) * Math.max(0.35, lateralFade);
+          solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
+        }
 
-        // Relevo de Alta Precisão (Nose +11.8, Bochechas +4.9, Órbitas -3.5, Barba, Dobras de Toga)
+        // Relevo de Alta Precisão (Nose +11.8, Bochechas +4.9, Órbitas -3.5, Barba, Músculos)
         const highpass = reliefMap ? reliefMap[idx] : 0;
         const sculptProjection = highpass * 0.35 * depthDetail;
 
-        // Microrrelevo de escultura em pedra / rugas / textura a partir da luminância
-        const stoneDetail = ((depthMap ? depthMap[idx] : 0.5) - 0.5) * 1.8 * depthDetail;
+        // Microrrelevo de superfície / rugas / textura a partir da luminância
+        const stoneDetail = ((depthMap ? depthMap[idx] : 0.5) - 0.5) * 1.6 * depthDetail;
 
         const effVolumeFront = baseVolume * (1.0 - baseBlend) + solidBaseFront * baseBlend;
-        const frontThickness = Math.max(1.0, (effVolumeFront + sculptProjection * (1.0 - baseBlend) + stoneDetail) * edgeFade);
+        const frontThickness = Math.max(1.2, (effVolumeFront + sculptProjection * (1.0 - baseBlend) + stoneDetail) * edgeFade);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = -frontThickness;
@@ -674,7 +662,7 @@ export class MeshGenerator {
       }
     }
 
-    // 2. Vértices do Verso (Volume Craniano e Dorsal Suave e Completo)
+    // 2. Vértices do Verso (Escultura Anatômica 360° Real: Coluna, Escápulas, Glúteos, Dobras de Capa)
     const backOffset = totalFgPixels;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -685,20 +673,46 @@ export class MeshGenerator {
 
         const distFromBottom = maxY - y;
         const bottomZone = Math.max(4, Math.round(charH * 0.12));
-        const baseBlend = Math.max(0, 1.0 - (distFromBottom / bottomZone));
+        const baseBlend = addPedestal ? Math.max(0, 1.0 - (distFromBottom / bottomZone)) : 0;
 
         const edgeT = Math.min(1.0, dNorm * 3.5);
         const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
         const edgeFade = edgeFadeRaw * (1.0 - baseBlend) + 1.0 * baseBlend;
 
-        const bottomSpan = charW * 0.5;
-        const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
-        const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
-        const solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
+        let solidBaseBack = 0;
+        if (addPedestal) {
+          const bottomSpan = charW * 0.5;
+          const centerDist = Math.abs(x - (minX + maxX) / 2) / Math.max(1, bottomSpan);
+          const lateralFade = Math.cos(Math.min(1.0, centerDist) * (Math.PI / 2)) ** 0.5;
+          solidBaseBack = (maxDepth * 0.45) * Math.max(0.35, lateralFade);
+        }
 
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
-        const effVolumeBack = (dome * (maxDepth * 0.44)) * (1.0 - baseBlend) + solidBaseBack * baseBlend;
-        const backThickness = Math.max(1.0, effVolumeBack * edgeFade);
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.35) * (Math.PI / 2)) ** 0.70;
+        const baseBackVolume = dome * (maxDepth * 0.50);
+
+        // Escultura da anatomia dorsal tridimensional real
+        const relY = (y - minY) / charH;
+        const relX = (x - minX) / charW;
+        const distFromCenter = Math.abs(relX - 0.5);
+        let dorsalAnatomy = 0;
+
+        if (relY > 0.12 && relY < 0.60) {
+          // Tronco / Costas: sulco vertebral no meio e relevo de escápulas bilateral
+          if (distFromCenter < 0.08) {
+            dorsalAnatomy -= 0.12 * maxDepth * (1.0 - distFromCenter / 0.08); // depressão da coluna
+          } else if (distFromCenter < 0.28) {
+            dorsalAnatomy += 0.10 * maxDepth * Math.sin(((distFromCenter - 0.08) / 0.20) * Math.PI); // escápula/músculo dorsal
+          }
+        } else if (relY >= 0.60 && relY < 0.85) {
+          // Curvatura glútea e posterior de coxas
+          dorsalAnatomy += 0.12 * maxDepth * Math.sin(((relY - 0.60) / 0.25) * Math.PI);
+        }
+
+        // Dobras de tecido / capa no verso (inversão da luminância da imagem)
+        const clothDetailBack = ((depthMap ? (1.0 - depthMap[idx]) : 0.5) - 0.5) * 1.2 * depthDetail;
+
+        const effVolumeBack = (baseBackVolume + dorsalAnatomy + clothDetailBack) * (1.0 - baseBlend) + solidBaseBack * baseBlend;
+        const backThickness = Math.max(1.2, effVolumeBack * edgeFade);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = +backThickness;
