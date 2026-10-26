@@ -10,7 +10,7 @@ export class MeshGenerator {
    * Processamento e segmentação inteligente de imagem com Flood-Fill a partir das bordas externas
    * Preserva cabelos pretos, sombras de botas, olhos e detalhes escuros sem apagar o personagem
    */
-  static getImageData(image, targetResolution = 200) {
+  static getImageData(image, targetResolution = 220, depthImage = null) {
     // 1. Renderiza a imagem original em alta fidelidade para análise
     const srcW = image.naturalWidth || image.width || 300;
     const srcH = image.naturalHeight || image.height || 300;
@@ -163,6 +163,40 @@ export class MeshGenerator {
 
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
+
+    let depthRawData = null;
+    if (depthImage) {
+      try {
+        const dSrcW = depthImage.naturalWidth || depthImage.width || srcW;
+        const dSrcH = depthImage.naturalHeight || depthImage.height || srcH;
+        const rawDepthCanvas = document.createElement('canvas');
+        rawDepthCanvas.width = dSrcW;
+        rawDepthCanvas.height = dSrcH;
+        const rawDepthCtx = rawDepthCanvas.getContext('2d', { willReadFrequently: true });
+        rawDepthCtx.drawImage(depthImage, 0, 0);
+
+        const dCanvas = document.createElement('canvas');
+        dCanvas.width = width;
+        dCanvas.height = height;
+        const dCtx = dCanvas.getContext('2d', { willReadFrequently: true });
+        dCtx.imageSmoothingEnabled = true;
+        dCtx.imageSmoothingQuality = 'high';
+
+        const scaleX = dSrcW / srcW;
+        const scaleY = dSrcH / srcH;
+        dCtx.drawImage(
+          rawDepthCanvas,
+          cropX * scaleX,
+          cropY * scaleY,
+          cropW * scaleX,
+          cropH * scaleY,
+          0, 0, width, height
+        );
+        depthRawData = dCtx.getImageData(0, 0, width, height).data;
+      } catch (err) {
+        console.warn('Erro ao processar imagem de profundidade:', err);
+      }
+    }
 
     // 4. Detecção de fundo estritamente a partir das 4 bordas externas com fechamento hermético de buracos internos
     // Amostrar bordas da imagem reamostrada
@@ -327,6 +361,7 @@ export class MeshGenerator {
     // Máscara final sem furos e sem ruídos
     const mask = new Uint8Array(width * height);
     const depthMap = new Float32Array(width * height);
+    const neuralDepthMap = new Float32Array(width * height);
     let finalMinX = width, finalMaxX = 0, finalMinY = height, finalMaxY = 0;
 
     for (let y = 0; y < height; y++) {
@@ -346,17 +381,60 @@ export class MeshGenerator {
       }
     }
 
-    // 6. Normalização do mapa de relevo suave
+    // Normalização do Mapa de Profundidade Neural 3D
+    let minD = 255, maxD = 0;
+    if (depthRawData) {
+      for (let i = 0; i < width * height; i++) {
+        if (mask[i] === 1) {
+          const val = depthRawData[i * 4];
+          if (val < minD) minD = val;
+          if (val > maxD) maxD = val;
+        }
+      }
+      const rangeD = Math.max(1, maxD - minD);
+      for (let i = 0; i < width * height; i++) {
+        if (mask[i] === 1) {
+          neuralDepthMap[i] = (depthRawData[i * 4] - minD) / rangeD;
+        }
+      }
+    } else {
+      // Fallback anatômico caso não haja mapa neural
+      const rawDt = this.computeDistanceTransform(mask, width, height);
+      let maxDt = 1;
+      for (let i = 0; i < width * height; i++) {
+        if (mask[i] === 1 && rawDt[i] > maxDt) maxDt = rawDt[i];
+      }
+      for (let i = 0; i < width * height; i++) {
+        if (mask[i] === 1) {
+          const dNorm = Math.min(1.0, rawDt[i] / maxDt);
+          neuralDepthMap[i] = dNorm * 0.72 + depthMap[i] * 0.28;
+        }
+      }
+    }
+
+    // Unsharp masking e relevo anatômico micro-esculpido (nariz, olhos, lábios, barba, dobras de toga)
     const reliefMap = new Float32Array(width * height);
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const idx = y * width + x;
         if (mask[idx] === 0) continue;
 
-        const dx = (depthMap[idx + 1] - depthMap[idx - 1]) * 0.5;
-        const dy = (depthMap[idx + width] - depthMap[idx - width]) * 0.5;
-        const edge = Math.sqrt(dx * dx + dy * dy);
-        reliefMap[idx] = (depthMap[idx] - 0.5) * 0.4 + edge * 0.2;
+        const centerD = neuralDepthMap[idx];
+        const avgD = (
+          neuralDepthMap[idx - 1] + neuralDepthMap[idx + 1] +
+          neuralDepthMap[idx - width] + neuralDepthMap[idx + width]
+        ) * 0.25;
+        const laplacian = centerD - avgD;
+
+        const dx = (neuralDepthMap[idx + 1] - neuralDepthMap[idx - 1]) * 0.5;
+        const dy = (neuralDepthMap[idx + width] - neuralDepthMap[idx - width]) * 0.5;
+        const grad = Math.sqrt(dx * dx + dy * dy);
+
+        const lumDx = (depthMap[idx + 1] - depthMap[idx - 1]) * 0.5;
+        const lumDy = (depthMap[idx + width] - depthMap[idx - width]) * 0.5;
+        const lumGrad = Math.sqrt(lumDx * lumDx + lumDy * lumDy);
+
+        reliefMap[idx] = laplacian * 4.0 + grad * 0.4 + lumGrad * 0.25;
       }
     }
 
@@ -364,6 +442,7 @@ export class MeshGenerator {
       width,
       height,
       depthMap,
+      neuralDepthMap,
       reliefMap,
       mask,
       canvas,
@@ -520,13 +599,13 @@ export class MeshGenerator {
   static createVolumetricSculpture(processedImage, options = {}) {
     const {
       targetHeight = 90,     // mm (altura em pé Z)
-      maxDepth = 24,         // mm (espessura frente/verso Y)
-      depthDetail = 1.2,     // relevo muscular
-      addPedestal = true,    // base na mesa
-      pedestalHeight = 3.2   // mm
+      maxDepth = 26,         // mm (volume do busto Y)
+      depthDetail = 1.4,     // relevo de feições faciais e dobras
+      addPedestal = true,    // base sólida chanfrada para mesa aquecida
+      pedestalHeight = 4.0   // mm
     } = options;
 
-    const { width: W, height: H, mask, reliefMap, bounds } = processedImage;
+    const { width: W, height: H, mask, depthMap, neuralDepthMap, reliefMap, bounds } = processedImage;
 
     const { minX, maxX, minY, maxY } = bounds;
     const charW = Math.max(1, maxX - minX);
@@ -534,7 +613,7 @@ export class MeshGenerator {
 
     const targetWidth = targetHeight * (charW / charH);
 
-    // Transformada de Distância e Suavização Gaussiana Contínua
+    // Transformada de Distância Euclidiana Contínua
     const rawDt = this.computeDistanceTransform(mask, W, H);
     const dt = this.gaussianBlur2D(rawDt, W, H);
 
@@ -563,7 +642,7 @@ export class MeshGenerator {
     const zBaseOffset = addPedestal ? pedestalHeight : 0;
     const usableHeight = targetHeight - zBaseOffset;
 
-    // 1. Vértices da Frente (Orientados para -Y, em direção à câmera frontal)
+    // 1. Vértices da Frente (Anatomia Tridimensional Viva com Nariz, Olhos e Relevo Esculpido)
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
         const idx = y * W + x;
@@ -572,17 +651,22 @@ export class MeshGenerator {
         const d = dt[idx];
         const dNorm = Math.min(1.0, d / maxDist);
 
-        // Suavização cúbica nas bordas (Hermite smoothstep): espessura vai a 0 na borda
-        const edgeT = Math.min(1.0, dNorm * 4.5);
-        const edgeFade = edgeT * edgeT * (3.0 - 2.0 * edgeT);
+        // Suavização nas bordas, mantendo espessura estrutural sólida na base
+        const isBottom = y >= maxY - Math.max(3, Math.round(charH * 0.06));
+        const bottomBlend = Math.min(1.0, (maxY - y) / Math.max(1, charH * 0.06));
 
-        // Curvatura esférica/cilíndrica orgânica
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
-        const baseThickness = (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade;
-        const maxEmboss = baseThickness * 0.38;
-        const rawEmboss = (reliefMap[idx] || 0) * depthDetail * 0.8 * edgeFade;
-        const emboss = Math.max(-maxEmboss, Math.min(maxEmboss, rawEmboss));
-        const frontThickness = Math.max(0.2 * edgeFade, baseThickness + emboss);
+        const edgeT = Math.min(1.0, dNorm * 4.0);
+        const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
+        const edgeFade = isBottom ? (edgeFadeRaw * bottomBlend + (1.0 - bottomBlend)) : edgeFadeRaw;
+
+        // Curvatura craniana e volume corporal orgânico
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
+        const normD = neuralDepthMap ? neuralDepthMap[idx] : dome;
+
+        // Projeção física tridimensional real: nariz se projeta para a frente (+Z), órbitas dos olhos recuam
+        const frontBase = (dome * 0.20 + normD * 0.80) * (maxDepth * 0.62) * edgeFade;
+        const frontDetail = (reliefMap ? reliefMap[idx] : 0) * depthDetail * 2.8 * edgeFade;
+        const frontThickness = Math.max(0.3 * edgeFade, frontBase + frontDetail);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = -frontThickness;
@@ -593,7 +677,7 @@ export class MeshGenerator {
       }
     }
 
-    // 2. Vértices do Verso (Costas do boneco, voltados para +Y)
+    // 2. Vértices do Verso (Volume Craniano Anatômico Arredondado)
     const backOffset = totalFgPixels;
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
@@ -602,11 +686,16 @@ export class MeshGenerator {
 
         const d = dt[idx];
         const dNorm = Math.min(1.0, d / maxDist);
-        const edgeT = Math.min(1.0, dNorm * 4.5);
-        const edgeFade = edgeT * edgeT * (3.0 - 2.0 * edgeT);
 
-        const dome = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2));
-        const backThickness = Math.max(0.2 * edgeFade, (dome * 0.76 + Math.pow(dNorm, 0.58) * 0.24) * (maxDepth / 2) * edgeFade * 0.90);
+        const isBottom = y >= maxY - Math.max(3, Math.round(charH * 0.06));
+        const bottomBlend = Math.min(1.0, (maxY - y) / Math.max(1, charH * 0.06));
+
+        const edgeT = Math.min(1.0, dNorm * 4.0);
+        const edgeFadeRaw = edgeT * edgeT * (3.0 - 2.0 * edgeT);
+        const edgeFade = isBottom ? (edgeFadeRaw * bottomBlend + (1.0 - bottomBlend)) : edgeFadeRaw;
+
+        const dome = Math.sin(Math.min(1.0, dNorm * 1.3) * (Math.PI / 2)) ** 0.65;
+        const backThickness = Math.max(0.3 * edgeFade, dome * (maxDepth * 0.38) * edgeFade);
 
         const xPos = ((x - minX) / charW - 0.5) * targetWidth;
         const yPos = +backThickness;
@@ -617,7 +706,8 @@ export class MeshGenerator {
       }
     }
 
-    // 3. Triangulação das superfícies da frente e de trás
+    // 3. Triangulação de Alta Fidelidade (incluindo cantos diagonais da silhueta)
+    const frontTris = [];
     for (let y = minY; y < maxY; y++) {
       for (let x = minX; x < maxX; x++) {
         const iA = vIdx[y * W + x];
@@ -625,134 +715,93 @@ export class MeshGenerator {
         const iC = vIdx[(y + 1) * W + x];
         const iD = vIdx[(y + 1) * W + (x + 1)];
 
-        if (iA !== -1 && iB !== -1 && iC !== -1 && iD !== -1) {
-          indices.push(iA, iB, iC);
-          indices.push(iB, iD, iC);
-
-          indices.push(backOffset + iA, backOffset + iC, backOffset + iB);
-          indices.push(backOffset + iB, backOffset + iC, backOffset + iD);
+        const pts = (iA !== -1 ? 1 : 0) + (iB !== -1 ? 1 : 0) + (iC !== -1 ? 1 : 0) + (iD !== -1 ? 1 : 0);
+        if (pts === 4) {
+          frontTris.push(iA, iB, iC);
+          frontTris.push(iB, iD, iC);
+        } else if (pts === 3) {
+          if (iA !== -1 && iB !== -1 && iC !== -1) frontTris.push(iA, iB, iC);
+          else if (iB !== -1 && iD !== -1 && iC !== -1) frontTris.push(iB, iD, iC);
+          else if (iA !== -1 && iB !== -1 && iD !== -1) frontTris.push(iA, iB, iD);
+          else if (iA !== -1 && iC !== -1 && iD !== -1) frontTris.push(iA, iD, iC);
         }
       }
     }
 
-    // 4. Fechamento perimétrico hermético (Skirt)
-    const addSkirtQuad = (frontA, frontB) => {
-      const backA = backOffset + frontA;
-      const backB = backOffset + frontB;
-      indices.push(frontA, backA, frontB);
-      indices.push(frontB, backA, backB);
-    };
+    for (let i = 0; i < frontTris.length; i++) indices.push(frontTris[i]);
 
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        const curr = vIdx[y * W + x];
-        if (curr === -1) continue;
+    // Superfície de trás (orientação invertida para normais externas)
+    for (let i = 0; i < frontTris.length; i += 3) {
+      indices.push(backOffset + frontTris[i], backOffset + frontTris[i + 2], backOffset + frontTris[i + 1]);
+    }
 
-        if (x === maxX || vIdx[y * W + x + 1] === -1) {
-          if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
-            addSkirtQuad(curr, vIdx[(y + 1) * W + x]);
-          }
-        }
-        if (x === minX || vIdx[y * W + x - 1] === -1) {
-          if (y < maxY && vIdx[(y + 1) * W + x] !== -1) {
-            addSkirtQuad(vIdx[(y + 1) * W + x], curr);
-          }
-        }
-        if (y === minY || vIdx[(y - 1) * W + x] === -1) {
-          if (x < maxX && vIdx[y * W + x + 1] !== -1) {
-            addSkirtQuad(vIdx[y * W + x + 1], curr);
-          }
-        }
-        if (y === maxY || vIdx[(y + 1) * W + x] === -1) {
-          if (x < maxX && vIdx[y * W + x + 1] !== -1) {
-            addSkirtQuad(curr, vIdx[y * W + x + 1]);
-          }
+    // 4. Fechamento Perimétrico Hermético 100% Manifold (Borda Externa Contínua)
+    const edgeCounts = new Map();
+    for (let i = 0; i < frontTris.length; i += 3) {
+      const a = frontTris[i], b = frontTris[i + 1], c = frontTris[i + 2];
+      for (let [u, v] of [[a, b], [b, c], [c, a]]) {
+        const key = u < v ? `${u},${v}` : `${v},${u}`;
+        edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+      }
+    }
+    for (let i = 0; i < frontTris.length; i += 3) {
+      const a = frontTris[i], b = frontTris[i + 1], c = frontTris[i + 2];
+      for (let [u, v] of [[a, b], [b, c], [c, a]]) {
+        const key = u < v ? `${u},${v}` : `${v},${u}`;
+        if (edgeCounts.get(key) === 1) {
+          const uB = backOffset + u;
+          const vB = backOffset + v;
+          indices.push(u, v, vB);
+          indices.push(u, vB, uB);
         }
       }
     }
 
-    // 5. Suavização Laplaciana 3D para dissolver qualquer aresta serrilhada em curvaturas orgânicas
-    this.applyLaplacianSmoothing(positions, indices, 6, 0.50);
-
-
-    // 5. Pedestal de Apoio Integrado (Sólido para Mesa Aquecida Z = 0)
+    // 5. Pedestal Sólido Chanfrado Integrado para a Mesa Aquecida (Z = 0)
     if (addPedestal) {
-      const pedSegments = 48;
-      const pedRadiusX = Math.max(16, (targetWidth * 0.5) + 6);
-      const pedRadiusY = Math.max(12, (maxDepth * 0.7) + 6);
+      const pedSegments = 64;
+      const pedRadiusX = Math.max(22, (targetWidth * 0.5) + 6);
+      const pedRadiusY = Math.max(16, (maxDepth * 0.65) + 6);
       const pedHeight = pedestalHeight;
-      const chamferHeight = pedHeight * 0.4;
 
-      const pedBottomCenterIdx = positions.length / 3;
+      const botCenterIdx = positions.length / 3;
       positions.push(0, 0, 0);
       uvs.push(0.5, 0.5);
 
       const botRingStart = positions.length / 3;
       for (let i = 0; i < pedSegments; i++) {
         const theta = (i / pedSegments) * Math.PI * 2;
-        const px = Math.cos(theta) * pedRadiusX;
-        const py = Math.sin(theta) * pedRadiusY;
-        positions.push(px, py, 0);
+        positions.push(Math.cos(theta) * pedRadiusX, Math.sin(theta) * pedRadiusY, 0);
         uvs.push(0.5 + 0.5 * Math.cos(theta), 0.5 + 0.5 * Math.sin(theta));
       }
-
-      // Fundo do pedestal (Z = 0)
+      // Fundo plano na mesa (Z = 0)
       for (let i = 0; i < pedSegments; i++) {
-        const i0 = botRingStart + i;
-        const i1 = botRingStart + ((i + 1) % pedSegments);
-        indices.push(pedBottomCenterIdx, i1, i0);
+        indices.push(botCenterIdx, botRingStart + ((i + 1) % pedSegments), botRingStart + i);
       }
 
-      // Anel intermediário do chanfro
-      const midRingStart = positions.length / 3;
+      const topRingStart = positions.length / 3;
       for (let i = 0; i < pedSegments; i++) {
         const theta = (i / pedSegments) * Math.PI * 2;
-        const px = Math.cos(theta) * pedRadiusX;
-        const py = Math.sin(theta) * pedRadiusY;
-        positions.push(px, py, pedHeight - chamferHeight);
+        positions.push(Math.cos(theta) * (pedRadiusX - 1.2), Math.sin(theta) * (pedRadiusY - 1.2), pedHeight);
         uvs.push(0.5 + 0.5 * Math.cos(theta), 0.5 + 0.5 * Math.sin(theta));
       }
 
-      // Parede vertical do pedestal
+      // Paredes chanfradas do pedestal
       for (let i = 0; i < pedSegments; i++) {
         const b0 = botRingStart + i;
         const b1 = botRingStart + ((i + 1) % pedSegments);
-        const m0 = midRingStart + i;
-        const m1 = midRingStart + ((i + 1) % pedSegments);
-        indices.push(b0, b1, m0);
-        indices.push(b1, m1, m0);
-      }
-
-      // Anel do topo (chanfrado)
-      const topRingStart = positions.length / 3;
-      const topRadiusX = pedRadiusX - 1.5;
-      const topRadiusY = pedRadiusY - 1.5;
-      for (let i = 0; i < pedSegments; i++) {
-        const theta = (i / pedSegments) * Math.PI * 2;
-        const px = Math.cos(theta) * topRadiusX;
-        const py = Math.sin(theta) * topRadiusY;
-        positions.push(px, py, pedHeight);
-        uvs.push(0.5 + 0.5 * Math.cos(theta), 0.5 + 0.5 * Math.sin(theta));
-      }
-
-      // Chanfro do topo
-      for (let i = 0; i < pedSegments; i++) {
-        const m0 = midRingStart + i;
-        const m1 = midRingStart + ((i + 1) % pedSegments);
         const t0 = topRingStart + i;
         const t1 = topRingStart + ((i + 1) % pedSegments);
-        indices.push(m0, m1, t0);
-        indices.push(m1, t1, t0);
+        indices.push(b0, b1, t0);
+        indices.push(b1, t1, t0);
       }
 
-      // Tampa do topo do pedestal
-      const pedTopCenterIdx = positions.length / 3;
+      // Topo do pedestal (Z = pedHeight)
+      const topCenterIdx = positions.length / 3;
       positions.push(0, 0, pedHeight);
       uvs.push(0.5, 0.5);
       for (let i = 0; i < pedSegments; i++) {
-        const t0 = topRingStart + i;
-        const t1 = topRingStart + ((i + 1) % pedSegments);
-        indices.push(pedTopCenterIdx, t0, t1);
+        indices.push(topCenterIdx, topRingStart + i, topRingStart + ((i + 1) % pedSegments));
       }
     }
 

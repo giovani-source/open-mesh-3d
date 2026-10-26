@@ -12,7 +12,7 @@ export class Viewer3D {
     this.currentMesh = null;
     this.currentModel = null;
     this.currentTexture = null;
-    this.materialMode = 'texture';
+    this.materialMode = 'clay';
     this.wireframeVisible = false;
     this.bedVisible = true;
     this.gltfLoader = new GLTFLoader();
@@ -58,22 +58,23 @@ export class Viewer3D {
   }
 
   initLights() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+    // Iluminação de estúdio de escultura com contraste rico para visualização da geometria 3D pura
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
     this.scene.add(ambientLight);
 
-    // Luz frontal principal
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
-    this.keyLight.position.set(60, -140, 120);
+    // Luz principal direcional em ângulo (revela nariz, olhos, queixo e dobras em 3D real)
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    this.keyLight.position.set(70, -120, 110);
     this.keyLight.castShadow = true;
     this.scene.add(this.keyLight);
 
-    // Luz de contorno traseira
-    const rimLight = new THREE.DirectionalLight(0x70a1ff, 1.0);
-    rimLight.position.set(-60, 140, 80);
+    // Luz de contorno e preenchimento
+    const rimLight = new THREE.DirectionalLight(0x70a1ff, 1.2);
+    rimLight.position.set(-80, 100, 70);
     this.scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.6);
-    fillLight.position.set(-100, -80, 60);
+    const fillLight = new THREE.DirectionalLight(0xffeedd, 0.7);
+    fillLight.position.set(-90, -70, 50);
     this.scene.add(fillLight);
   }
 
@@ -346,9 +347,9 @@ export class Viewer3D {
 
       case 'clay':
         return new THREE.MeshStandardMaterial({
-          color: 0xf5f6fa,
-          roughness: 0.65,
-          metalness: 0.05
+          color: 0xecf0f1,
+          roughness: 0.55,
+          metalness: 0.08
         });
 
       case 'pla_gold':

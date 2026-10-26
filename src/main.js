@@ -38,14 +38,23 @@ class StudioApp {
     this.bindExports();
     this.bindModals();
 
-    // Inicia com o Robozinho Laranja do usuário por padrão
-    this.loadPreset('orange_bot');
+    // Inicia com o Busto Clássico para inspeção imediata da escultura 3D real
+    this.loadPreset('statue');
   }
 
   getPresets() {
     return {
+      statue: {
+        url: './samples/statue_bust.jpg',
+        depthUrl: './samples/statue_bust_depth.png',
+        glbUrl: null,
+        height: 85,
+        depth: 26,
+        mode: 'volumetric'
+      },
       orange_bot: {
         url: './samples/bot_front.png',
+        depthUrl: './samples/bot_front_depth.png',
         fullSheetUrl: './samples/user_bots.png',
         glbUrl: null,
         height: 90,
@@ -54,6 +63,7 @@ class StudioApp {
       },
       superman: {
         url: './samples/superman.png',
+        depthUrl: './samples/superman_depth.png',
         glbUrl: null,
         height: 90,
         depth: 24,
@@ -61,6 +71,7 @@ class StudioApp {
       },
       robot: {
         url: './samples/robot_toy.jpg',
+        depthUrl: './samples/robot_toy_depth.png',
         glbUrl: null,
         height: 85,
         depth: 26,
@@ -68,21 +79,14 @@ class StudioApp {
       },
       dragon: {
         url: './samples/dragon_coin.jpg',
+        depthUrl: null,
         glbUrl: null,
         height: 75,
         depth: 14,
         mode: 'relief'
-      },
-      statue: {
-        url: './samples/statue_bust.jpg',
-        glbUrl: null,
-        height: 85,
-        depth: 25,
-        mode: 'volumetric'
       }
     };
   }
-
 
   loadPreset(key) {
     const presets = this.getPresets();
@@ -111,22 +115,42 @@ class StudioApp {
 
     this.updateEngineTabsUI(config.mode);
 
+    this.currentDepthImg = null;
+
+    const onAllLoaded = () => {
+      this.activeCropCanvas = null;
+      this.activeCropSrc = config.url;
+
+      this.updateImagePreview(config.url);
+      this.detectPoses(this.currentImage);
+
+      if (config.glbUrl) {
+        this.loadPrecomputedGLB(config.glbUrl);
+      } else {
+        this.generate3DModel();
+      }
+    };
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       this.currentImage = img;
       this.currentImageSrc = config.url;
-      this.activeCropCanvas = null;
-      this.activeCropSrc = config.url;
 
-      this.updateImagePreview(config.url);
-      this.detectPoses(img);
-
-      // Se o preset já tem GLB pré-computado, carrega diretamente para velocidade instantânea
-      if (config.glbUrl) {
-        this.loadPrecomputedGLB(config.glbUrl);
+      if (config.depthUrl) {
+        const depthImg = new Image();
+        depthImg.crossOrigin = 'anonymous';
+        depthImg.onload = () => {
+          this.currentDepthImg = depthImg;
+          onAllLoaded();
+        };
+        depthImg.onerror = () => {
+          console.warn('Não foi possível carregar o mapa de profundidade pré-computado:', config.depthUrl);
+          onAllLoaded();
+        };
+        depthImg.src = config.depthUrl;
       } else {
-        this.generate3DModel();
+        onAllLoaded();
       }
     };
     img.src = config.url;
@@ -479,7 +503,7 @@ class StudioApp {
     const targetImg = this.activeCropCanvas || this.currentImage;
 
     try {
-      const processed = MeshGenerator.getImageData(targetImg, 240);
+      const processed = MeshGenerator.getImageData(targetImg, 220, this.currentDepthImg);
       this.viewer.setTextureFromCanvas(processed.canvas);
 
       let result;
@@ -495,7 +519,7 @@ class StudioApp {
           maxDepth: this.options.maxDepth,
           depthDetail: this.options.depthDetail,
           addPedestal: this.options.addPedestal,
-          pedestalHeight: 3.2
+          pedestalHeight: 4.0
         });
       }
 
