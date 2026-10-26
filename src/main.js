@@ -682,5 +682,5 @@ class StudioApp {
 
 // Inicia o estúdio quando o DOM estiver pronto
 window.addEventListener('DOMContentLoaded', () => {
-  new StudioApp();
+  window.studioApp = new StudioApp();
 });
