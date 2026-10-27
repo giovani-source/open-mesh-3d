@@ -10,7 +10,7 @@ export class CloudAIService {
    * Gera modelo 3D volumétrico real 360° através da IA Tencent Hunyuan3D-2 (100% Gratuito, sem necessidade de API key)
    */
   static async generateWithHunyuan3D(imageBlobOrUrl, onProgress = () => {}) {
-    onProgress({ stage: 'connecting', percent: 10, message: 'Conectando ao cluster neural Hunyuan3D-2...' });
+    onProgress({ stage: 'connecting', percent: 12, message: 'Conectando ao cluster neural Hunyuan3D-2 (100% Gratuito)...' });
     
     let imageBlob = imageBlobOrUrl;
     if (typeof imageBlobOrUrl === 'string') {
@@ -18,57 +18,53 @@ export class CloudAIService {
       imageBlob = await res.blob();
     }
 
-    onProgress({ stage: 'uploading', percent: 25, message: 'Enviando imagem para a IA...' });
+    onProgress({ stage: 'uploading', percent: 25, message: 'Enviando imagem para a IA 3D...' });
 
     const hfToken = this.getStoredHfToken();
     const connectOpts = hfToken ? { hf_token: hfToken } : {};
-    const app = await Client.connect('frogleo/Image-to-3D', connectOpts);
+    const app = await Client.connect('tencent/Hunyuan3D-2', connectOpts);
     
     onProgress({ stage: 'generating', percent: 45, message: 'IA esculpindo anatomia 360° com redes neurais...' });
 
     let simPercent = 45;
     const interval = setInterval(() => {
-      if (simPercent < 85) {
+      if (simPercent < 88) {
         simPercent += 5;
-        onProgress({ stage: 'generating', percent: simPercent, message: `Reconstruindo malha orgânica 3D: ${simPercent}%...` });
+        onProgress({ stage: 'generating', percent: simPercent, message: `Modelando geometria orgânica 360°: ${simPercent}%...` });
       }
-    }, 2000);
+    }, 1500);
 
     try {
-      const result = await app.predict('/gen_shape', {
+      const result = await app.predict('/shape_generation', {
+        caption: null,
         image: imageBlob,
-        steps: 12,
-        guidance_scale: 5.5,
+        mv_image_front: null,
+        mv_image_back: null,
+        mv_image_left: null,
+        mv_image_right: null,
+        steps: 15,
+        guidance_scale: 5.0,
         seed: 1234,
         octree_resolution: 256,
+        check_box_rembg: true,
         num_chunks: 8000,
-        target_face_num: 10000,
         randomize_seed: true
       });
 
       clearInterval(interval);
-      onProgress({ stage: 'finalizing', percent: 92, message: 'Finalizando topologia manifold para impressão 3D...' });
+      onProgress({ stage: 'finalizing', percent: 92, message: 'Finalizando malha manifold 360° para fatiamento...' });
 
       let glbUrl = null;
-      let objUrl = null;
-
-      if (Array.isArray(result.data)) {
-        if (typeof result.data[2] === 'string' && result.data[2].endsWith('.glb')) {
-          glbUrl = `https://frogleo-image-to-3d.hf.space${result.data[2]}`;
-        }
-        if (result.data[1]?.value?.url) {
-          objUrl = result.data[1].value.url;
-        } else if (typeof result.data[3] === 'string' && result.data[3].endsWith('.obj')) {
-          objUrl = `https://frogleo-image-to-3d.hf.space${result.data[3]}`;
-        }
+      if (Array.isArray(result.data) && result.data[0]?.value) {
+        glbUrl = result.data[0].value.url || result.data[0].value;
       }
 
-      if (!glbUrl && !objUrl) {
+      if (!glbUrl) {
         throw new Error('A IA concluiu o processamento mas o arquivo 3D não foi retornado.');
       }
 
-      onProgress({ stage: 'done', percent: 100, message: 'Modelo 3D volumétrico gerado com sucesso!' });
-      return { glbUrl, objUrl, rawData: result.data };
+      onProgress({ stage: 'done', percent: 100, message: 'Modelo 3D 360° gerado com sucesso!' });
+      return { glbUrl, rawData: result.data };
     } catch (err) {
       clearInterval(interval);
       throw err;

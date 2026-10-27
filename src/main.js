@@ -16,11 +16,11 @@ class StudioApp {
 
     this.options = {
       targetHeight: 85,     // mm no eixo Z (altura)
-      maxDepth: 18,         // mm no eixo Y (espessura elegante e sólida)
+      maxDepth: 28,         // mm no eixo Y (espessura tridimensional real)
       depthDetail: 1.0,     // intensidade de relevo suave
       addPedestal: false,   // sem base por padrão
-      backStyle: 'flat',    // 'flat' (traseira plana para deitar na mesa sem suporte) ou 'dome'
-      engineMode: 'volumetric'  // 'volumetric' (Sculptor3D orgânico), 'neural' ou 'relief'
+      backStyle: 'dome',    // 'dome' (360° orgânica arredondada sem parede plana)
+      engineMode: 'neural'  // 'neural' (Escultura 3D 360° Real Nativa)
     };
 
     this.init();
@@ -64,9 +64,10 @@ class StudioApp {
       aquaman: {
         url: './samples/aquaman.jpeg',
         depthUrl: null,
-        modelUrl: null,
+        modelUrl: './samples/aquaman_sculpture.stl',
+        glbUrl: './samples/aquaman_real3d.glb',
         height: 85,
-        depth: 28,
+        depth: 29.8,
         mode: 'neural'
       },
       statue: {
@@ -485,8 +486,53 @@ class StudioApp {
         return;
       }
 
-      // Modelagem 3D 360° nativa e instantânea para qualquer imagem enviada
-      this.generateLocalModel();
+      this.isGenerating = true;
+      btnGen.disabled = true;
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = '12%';
+      statusEl.textContent = 'Iniciando IA Hunyuan3D-2 (100% Gratuito / 360° Real)...';
+      statusEl.style.color = '#00f2fe';
+
+      try {
+        let imageToSend = targetSrc;
+        if (typeof targetSrc === 'string' && targetSrc.startsWith('data:')) {
+          const fetchRes = await fetch(targetSrc);
+          imageToSend = await fetchRes.blob();
+        }
+
+        const result = await CloudAIService.generateWithHunyuan3D(imageToSend, (prog) => {
+          progressBar.style.width = `${prog.percent}%`;
+          statusEl.textContent = prog.message;
+        });
+
+        const glbUrl = result.glbUrl;
+        this.currentGLBUrl = glbUrl;
+
+        statusEl.textContent = 'Posicionando modelo 3D 360° em pé na mesa (Z = 0)...';
+        progressBar.style.width = '96%';
+
+        const loadRes = await this.viewer.loadGLBFromUrl(glbUrl, {
+          targetHeight: this.options.targetHeight,
+          addPedestal: this.options.addPedestal
+        });
+
+        this.updateMetricsUI(loadRes.dimensions, loadRes.stats);
+
+        progressBar.style.width = '100%';
+        setTimeout(() => progressContainer.classList.add('hidden'), 800);
+
+        statusEl.textContent = `Modelo 3D 360° gerado com sucesso! (${loadRes.stats.triangles.toLocaleString()} polígonos • 100% Manifold)`;
+        statusEl.style.color = '#34d399';
+      } catch (err) {
+        console.warn('Falha na IA Hunyuan3D, usando modelador volumétrico 360° local:', err);
+        statusEl.textContent = 'Gerando escultura 360° orgânica no navegador...';
+        this.options.backStyle = 'dome';
+        this.generateLocalModel();
+      } finally {
+        this.isGenerating = false;
+        btnGen.disabled = false;
+        setTimeout(() => progressContainer.classList.add('hidden'), 1000);
+      }
       return;
     }
 

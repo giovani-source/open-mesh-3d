@@ -87,17 +87,17 @@
               <span class="step-num">2</span> Modo de Criação 3D
             </h2>
             <div class="engine-tabs">
-              <button class="engine-tab active" data-engine="volumetric">
+              <button class="engine-tab active" data-engine="neural">
                 <div class="tab-badge-row">
-                  <span class="tab-title">Escultura 3D Anatômica (Neural Depth)</span>
+                  <span class="tab-title">Escultura 3D 360° Real (IA Hunyuan3D)</span>
                   <span class="badge-star">RECOMENDADO</span>
                 </div>
-                <div class="tab-desc">Modela anatomia real com nariz saliente, órbitas oculares recuadas, barba esculpida e base plana sólida para fatiadores (Creality / Bambu)</div>
+                <div class="tab-desc">Modela anatomia tridimensional 360° completa: membros, pernas, cabeça, costas e acessórios sem placa plana (100% Gratuito)</div>
               </button>
 
-              <button class="engine-tab" data-engine="neural">
-                <div class="tab-title">Escultura 3D 360° Real (100% Nativo)</div>
-                <div class="tab-desc">Modela anatomia tridimensional 360° com membros, pernas, cabeça e costas orgânicas sem precisar de chaves</div>
+              <button class="engine-tab" data-engine="volumetric">
+                <div class="tab-title">Escultura 3D Orgânica (Local Rápido)</div>
+                <div class="tab-desc">Modela anatomia em relevo estufado no seu navegador em 1 segundo</div>
               </button>
 
               <button class="engine-tab" data-engine="relief">
@@ -124,19 +124,19 @@
             <div class="param-group" id="group-depth">
               <div class="param-header">
                 <label for="param-depth">Espessura / Profundidade da Peça</label>
-                <span id="val-depth" class="param-val">18 mm</span>
+                <span id="val-depth" class="param-val">28 mm</span>
               </div>
-              <input type="range" id="param-depth" min="8" max="50" step="1" value="18" class="slider" />
+              <input type="range" id="param-depth" min="8" max="50" step="1" value="28" class="slider" />
             </div>
 
             <div class="toggle-row" id="group-backstyle">
               <div class="toggle-label-wrap">
                 <span class="toggle-label">Estilo da Traseira</span>
-                <span class="toggle-sub">Plana para impressão limpa sem suportes</span>
+                <span class="toggle-sub">Arredondada orgânica em 360° ou plana</span>
               </div>
               <select id="select-backstyle" class="dropdown-select" style="background: #141c2e; color: #fff; border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 500; cursor: pointer;">
-                <option value="flat" selected>Traseira Plana (Sem estufar / Sem Suporte)</option>
-                <option value="dome">Arredondada Simétrica</option>
+                <option value="dome" selected>Arredondada Simétrica (360° Orgânica)</option>
+                <option value="flat">Traseira Plana (Para deitar na mesa)</option>
               </select>
             </div>
 

@@ -528,11 +528,17 @@ export class Viewer3D {
   }
 
   exportSTL(filename = 'boneco_3d.stl', isBinary = true) {
-    const targetObj = this.currentMesh || this.currentModel;
+    const targetObj = this.currentModel || this.currentMesh;
     if (!targetObj) return null;
 
+    const prevWireVis = this.wireframeMesh ? this.wireframeMesh.visible : false;
+    if (this.wireframeMesh) this.wireframeMesh.visible = false;
+
+    targetObj.updateMatrixWorld(true);
     const exporter = new STLExporter();
     const result = exporter.parse(targetObj, { binary: isBinary });
+
+    if (this.wireframeMesh) this.wireframeMesh.visible = prevWireVis;
 
     const blob = new Blob([result], {
       type: isBinary ? 'application/octet-stream' : 'text/plain'
@@ -548,7 +554,7 @@ export class Viewer3D {
   }
 
   export3MF(filename = 'boneco_3d.3mf') {
-    const targetObj = this.currentMesh || this.currentModel;
+    const targetObj = this.currentModel || this.currentMesh;
     if (!targetObj) return null;
 
     const verts = [];

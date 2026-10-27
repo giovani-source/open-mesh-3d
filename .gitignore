@@ -26,4 +26,5 @@ test_*.js
 export_final_bust.js
 *.stl
 !public/samples/*.stl
+!public/samples/*.glb
 .vercel
