@@ -48,9 +48,15 @@
         <aside class="panel left-panel">
           <!-- 1. IMAGE UPLOAD & SAMPLES -->
           <div class="panel-section">
-            <h2 class="section-title">
-              <span class="step-num">1</span> Sua Imagem de Entrada
-            </h2>
+            <div class="section-title-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h2 class="section-title" style="margin-bottom: 0;">
+                <span class="step-num">1</span> Imagens de Entrada
+              </h2>
+              <div class="view-mode-toggle" style="display: flex; background: rgba(255,255,255,0.06); padding: 2px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                <button type="button" id="btn-mode-single" class="toggle-pill active">1 Imagem</button>
+                <button type="button" id="btn-mode-multiview" class="toggle-pill">3 Ângulos ⭐</button>
+              </div>
+            </div>
 
             <div id="single-upload-box">
               <div id="dropzone" class="upload-dropzone">
@@ -75,6 +81,51 @@
                 </div>
                 <div class="pose-pills" id="pose-pills-container">
                   <!-- Pílulas preenchidas dinamicamente -->
+                </div>
+              </div>
+            </div>
+
+            <!-- MULTI-VIEW 3 ANGLES BOX -->
+            <div id="multiview-upload-box" class="multiview-box hidden">
+              <p class="multiview-hint">Envie fotos de <strong>3 ângulos diferentes</strong> (Frente, Lado e Costas) para a IA captar o máximo de detalhes anatômicos:</p>
+              <div class="mv-grid">
+                <!-- SLOT 1: FRENTE -->
+                <div class="mv-slot" id="slot-front">
+                  <span class="mv-slot-tag">1. Frente</span>
+                  <div class="mv-dropzone" id="mv-drop-front">
+                    <input type="file" id="mv-input-front" accept="image/*" class="file-hidden" />
+                    <div class="mv-prompt" id="mv-prompt-front">
+                      <span class="mv-icon">👤</span>
+                      <span>Frente</span>
+                    </div>
+                    <img id="mv-prev-front" class="mv-prev hidden" alt="Vista Frontal" />
+                  </div>
+                </div>
+
+                <!-- SLOT 2: LADO / PERFIL -->
+                <div class="mv-slot" id="slot-side">
+                  <span class="mv-slot-tag">2. Lado</span>
+                  <div class="mv-dropzone" id="mv-drop-side">
+                    <input type="file" id="mv-input-side" accept="image/*" class="file-hidden" />
+                    <div class="mv-prompt" id="mv-prompt-side">
+                      <span class="mv-icon">➡️</span>
+                      <span>Perfil</span>
+                    </div>
+                    <img id="mv-prev-side" class="mv-prev hidden" alt="Vista Lateral" />
+                  </div>
+                </div>
+
+                <!-- SLOT 3: COSTAS -->
+                <div class="mv-slot" id="slot-back">
+                  <span class="mv-slot-tag">3. Costas</span>
+                  <div class="mv-dropzone" id="mv-drop-back">
+                    <input type="file" id="mv-input-back" accept="image/*" class="file-hidden" />
+                    <div class="mv-prompt" id="mv-prompt-back">
+                      <span class="mv-icon">🔄</span>
+                      <span>Costas</span>
+                    </div>
+                    <img id="mv-prev-back" class="mv-prev hidden" alt="Vista Traseira" />
+                  </div>
                 </div>
               </div>
             </div>

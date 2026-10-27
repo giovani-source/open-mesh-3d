@@ -306,7 +306,7 @@ export class Viewer3D {
             });
             this.wireframeMesh = new THREE.Mesh(primaryMesh.geometry, wireMat);
             this.wireframeMesh.visible = this.wireframeVisible;
-            model.add(this.wireframeMesh);
+            this.modelGroup.add(this.wireframeMesh);
           }
 
           // Aplicar o material ativo
@@ -528,17 +528,21 @@ export class Viewer3D {
   }
 
   exportSTL(filename = 'boneco_3d.stl', isBinary = true) {
-    const targetObj = this.currentModel || this.currentMesh;
+    const targetObj = this.currentMesh || this.currentModel;
     if (!targetObj) return null;
 
-    const prevWireVis = this.wireframeMesh ? this.wireframeMesh.visible : false;
-    if (this.wireframeMesh) this.wireframeMesh.visible = false;
+    const prevWireParent = this.wireframeMesh ? this.wireframeMesh.parent : null;
+    if (this.wireframeMesh && prevWireParent) {
+      prevWireParent.remove(this.wireframeMesh);
+    }
 
     targetObj.updateMatrixWorld(true);
     const exporter = new STLExporter();
     const result = exporter.parse(targetObj, { binary: isBinary });
 
-    if (this.wireframeMesh) this.wireframeMesh.visible = prevWireVis;
+    if (this.wireframeMesh && prevWireParent) {
+      prevWireParent.add(this.wireframeMesh);
+    }
 
     const blob = new Blob([result], {
       type: isBinary ? 'application/octet-stream' : 'text/plain'
@@ -554,8 +558,13 @@ export class Viewer3D {
   }
 
   export3MF(filename = 'boneco_3d.3mf') {
-    const targetObj = this.currentModel || this.currentMesh;
+    const targetObj = this.currentMesh || this.currentModel;
     if (!targetObj) return null;
+
+    const prevWireParent = this.wireframeMesh ? this.wireframeMesh.parent : null;
+    if (this.wireframeMesh && prevWireParent) {
+      prevWireParent.remove(this.wireframeMesh);
+    }
 
     const verts = [];
     const triLines = [];
@@ -564,7 +573,7 @@ export class Viewer3D {
     targetObj.updateMatrixWorld(true);
 
     targetObj.traverse(node => {
-      if (node.isMesh && node.geometry) {
+      if (node.isMesh && node.geometry && node !== this.wireframeMesh) {
             const geo = node.geometry.index ? node.geometry.toNonIndexed() : node.geometry.clone();
             const pos = geo.attributes.position;
             const matrix = node.matrixWorld;
@@ -587,6 +596,10 @@ export class Viewer3D {
             }
           }
         });
+
+    if (this.wireframeMesh && prevWireParent) {
+      prevWireParent.add(this.wireframeMesh);
+    }
 
     const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">

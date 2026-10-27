@@ -6,25 +6,59 @@ import { Client } from '@gradio/client';
  */
 
 export class CloudAIService {
+  static async toBlob(input) {
+    if (!input) return null;
+    if (input instanceof Blob) return input;
+    if (typeof input === 'string') {
+      const res = await fetch(input);
+      return await res.blob();
+    }
+    return null;
+  }
+
   /**
    * Gera modelo 3D volumétrico real 360° através da IA Tencent Hunyuan3D-2 (100% Gratuito, sem necessidade de API key)
+   * Suporta imagem única ou multi-ângulos (Frente, Lado, Costas) para máxima riqueza de detalhes
    */
-  static async generateWithHunyuan3D(imageBlobOrUrl, onProgress = () => {}) {
+  static async generateWithHunyuan3D(inputOrOptions, onProgress = () => {}) {
     onProgress({ stage: 'connecting', percent: 12, message: 'Conectando ao cluster neural Hunyuan3D-2 (100% Gratuito)...' });
     
-    let imageBlob = imageBlobOrUrl;
-    if (typeof imageBlobOrUrl === 'string') {
-      const res = await fetch(imageBlobOrUrl);
-      imageBlob = await res.blob();
+    let frontBlob = null;
+    let sideBlob = null;
+    let backBlob = null;
+
+    if (inputOrOptions && typeof inputOrOptions === 'object' && !(inputOrOptions instanceof Blob)) {
+      frontBlob = await this.toBlob(inputOrOptions.front || inputOrOptions.imageUrl || inputOrOptions.image);
+      sideBlob = await this.toBlob(inputOrOptions.side || inputOrOptions.profile);
+      backBlob = await this.toBlob(inputOrOptions.back);
+    } else {
+      frontBlob = await this.toBlob(inputOrOptions);
     }
 
-    onProgress({ stage: 'uploading', percent: 25, message: 'Enviando imagem para a IA 3D...' });
+    if (!frontBlob) {
+      throw new Error('Nenhuma imagem frontal fornecida.');
+    }
+
+    const hasMultiView = Boolean(sideBlob || backBlob);
+    onProgress({
+      stage: 'uploading',
+      percent: 25,
+      message: hasMultiView 
+        ? 'Enviando múltiplos ângulos (Frente, Lado, Costas) para a IA...' 
+        : 'Enviando imagem para a IA 3D...'
+    });
 
     const hfToken = this.getStoredHfToken();
     const connectOpts = hfToken ? { hf_token: hfToken } : {};
     const app = await Client.connect('tencent/Hunyuan3D-2', connectOpts);
     
-    onProgress({ stage: 'generating', percent: 45, message: 'IA esculpindo anatomia 360° com redes neurais...' });
+    onProgress({
+      stage: 'generating',
+      percent: 45,
+      message: hasMultiView
+        ? 'IA combinando 3 ângulos para escultura 360° com ultra detalhes...'
+        : 'IA esculpindo anatomia 360° com redes neurais...'
+    });
 
     let simPercent = 45;
     const interval = setInterval(() => {
@@ -37,10 +71,10 @@ export class CloudAIService {
     try {
       const result = await app.predict('/shape_generation', {
         caption: null,
-        image: imageBlob,
-        mv_image_front: null,
-        mv_image_back: null,
-        mv_image_left: null,
+        image: frontBlob,
+        mv_image_front: frontBlob,
+        mv_image_back: backBlob || null,
+        mv_image_left: sideBlob || null,
         mv_image_right: null,
         steps: 15,
         guidance_scale: 5.0,

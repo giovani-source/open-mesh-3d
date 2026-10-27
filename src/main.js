@@ -23,6 +23,9 @@ class StudioApp {
       engineMode: 'neural'  // 'neural' (Escultura 3D 360° Real Nativa)
     };
 
+    this.inputMode = 'single'; // 'single' ou 'multiview'
+    this.multiViewImages = { front: null, side: null, back: null };
+
     this.init();
   }
 
@@ -31,6 +34,8 @@ class StudioApp {
     this.viewer = new Viewer3D(container);
 
     this.bindDropzones();
+    this.bindViewModeToggle();
+    this.bindMultiViewSlots();
     this.bindEngineTabs();
     this.bindSliders();
     this.bindToolbar();
@@ -349,6 +354,107 @@ class StudioApp {
     reader.readAsDataURL(file);
   }
 
+  bindViewModeToggle() {
+    const btnSingle = document.getElementById('btn-mode-single');
+    const btnMulti = document.getElementById('btn-mode-multiview');
+    const boxSingle = document.getElementById('single-upload-box');
+    const boxMulti = document.getElementById('multiview-upload-box');
+
+    if (!btnSingle || !btnMulti) return;
+
+    btnSingle.addEventListener('click', () => {
+      this.inputMode = 'single';
+      btnSingle.classList.add('active');
+      btnMulti.classList.remove('active');
+      boxSingle.classList.remove('hidden');
+      boxMulti.classList.add('hidden');
+    });
+
+    btnMulti.addEventListener('click', () => {
+      this.inputMode = 'multiview';
+      btnMulti.classList.add('active');
+      btnSingle.classList.remove('active');
+      boxMulti.classList.remove('hidden');
+      boxSingle.classList.add('hidden');
+
+      if (this.currentImageSrc && !this.multiViewImages.front) {
+        this.setSlotImage('front', this.currentImageSrc);
+      }
+    });
+  }
+
+  bindMultiViewSlots() {
+    ['front', 'side', 'back'].forEach(angle => {
+      const dropzone = document.getElementById(`mv-drop-${angle}`);
+      const fileInput = document.getElementById(`mv-input-${angle}`);
+
+      if (!dropzone || !fileInput) return;
+
+      dropzone.addEventListener('click', () => fileInput.click());
+
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('drag-active');
+      });
+
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('drag-active');
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('drag-active');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          this.handleMultiViewFile(angle, e.dataTransfer.files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          this.handleMultiViewFile(angle, e.target.files[0]);
+        }
+      });
+    });
+  }
+
+  handleMultiViewFile(angle, file) {
+    if (!file.type.startsWith('image/')) {
+      alert('Selecione uma imagem válida (PNG, JPG, WEBP).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      this.setSlotImage(angle, e.target.result);
+
+      if (angle === 'front') {
+        const img = new Image();
+        img.onload = () => {
+          this.currentImage = img;
+          this.currentImageSrc = e.target.result;
+          this.currentModelUrl = null;
+          this.updateImagePreview(e.target.result);
+        };
+        img.src = e.target.result;
+      }
+
+      this.currentModelUrl = null;
+      this.generate3DModel();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  setSlotImage(angle, dataUrl) {
+    this.multiViewImages[angle] = dataUrl;
+    const promptEl = document.getElementById(`mv-prompt-${angle}`);
+    const prevEl = document.getElementById(`mv-prev-${angle}`);
+    if (promptEl && prevEl) {
+      prevEl.src = dataUrl;
+      prevEl.classList.remove('hidden');
+      promptEl.classList.add('hidden');
+    }
+  }
+
   bindEngineTabs() {
     document.querySelectorAll('.engine-tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -494,13 +600,27 @@ class StudioApp {
       statusEl.style.color = '#00f2fe';
 
       try {
-        let imageToSend = targetSrc;
-        if (typeof targetSrc === 'string' && targetSrc.startsWith('data:')) {
-          const fetchRes = await fetch(targetSrc);
-          imageToSend = await fetchRes.blob();
+        let inputData;
+        if (this.inputMode === 'multiview' && (this.multiViewImages.front || this.multiViewImages.side || this.multiViewImages.back)) {
+          inputData = {
+            front: this.multiViewImages.front || targetSrc,
+            side: this.multiViewImages.side || null,
+            back: this.multiViewImages.back || null
+          };
+        } else if (this.detectedPoses?.hasMultiple && this.detectedPoses.views.length >= 2) {
+          const frontView = this.detectedPoses.views.find(v => v.label.toLowerCase().includes('frente')) || this.detectedPoses.views[0];
+          const sideView = this.detectedPoses.views.find(v => v.label.toLowerCase().includes('lado') || v.label.toLowerCase().includes('perfil'));
+          const backView = this.detectedPoses.views.find(v => v.label.toLowerCase().includes('costas'));
+          inputData = {
+            front: frontView ? frontView.dataUrl : targetSrc,
+            side: sideView ? sideView.dataUrl : null,
+            back: backView ? backView.dataUrl : null
+          };
+        } else {
+          inputData = targetSrc;
         }
 
-        const result = await CloudAIService.generateWithHunyuan3D(imageToSend, (prog) => {
+        const result = await CloudAIService.generateWithHunyuan3D(inputData, (prog) => {
           progressBar.style.width = `${prog.percent}%`;
           statusEl.textContent = prog.message;
         });
