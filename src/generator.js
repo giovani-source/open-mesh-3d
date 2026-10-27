@@ -186,7 +186,8 @@ export class MeshGenerator {
       }
     }
 
-    // Máscara final sem furos e sem ruídos
+    // Máscara final sem furos e sem ruídos (mantém o corpo e acessórios como tridente/cajado)
+    const minKeepComponentSize = Math.max(60, maxCompSize * 0.02);
     const mask = new Uint8Array(width * height);
     const depthMap = new Float32Array(width * height);
     const neuralDepthMap = new Float32Array(width * height);
@@ -195,7 +196,8 @@ export class MeshGenerator {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
-        if (labels[idx] === maxCompIdx) {
+        const lbl = labels[idx];
+        if (lbl === maxCompIdx || (lbl > 0 && compSizes[lbl] >= minKeepComponentSize)) {
           mask[idx] = 1;
           finalMinX = Math.min(finalMinX, x);
           finalMaxX = Math.max(finalMaxX, x);
@@ -213,7 +215,7 @@ export class MeshGenerator {
     for (let y = Math.floor(finalMaxY - height * 0.05); y <= finalMaxY; y++) {
       let rowMin = width, rowMax = 0;
       for (let x = finalMinX; x <= finalMaxX; x++) {
-        if (labels[y * width + x] === maxCompIdx) {
+        if (mask[y * width + x] === 1) {
           rowMin = Math.min(rowMin, x);
           rowMax = Math.max(rowMax, x);
         }
@@ -509,8 +511,13 @@ export class MeshGenerator {
     }
 
     const mainComponent = new Uint8Array(W * H);
+    // Mantém o corpo principal e acessórios do personagem (como o tridente do Aquaman, cajado, armas)
+    const minKeepSize = Math.max(80, maxSize * 0.025);
     for (let i = 0; i < W * H; i++) {
-      if (labels[i] === maxLabel) mainComponent[i] = 1;
+      const lbl = labels[i];
+      if (lbl > 0 && compSizes[lbl] >= minKeepSize) {
+        mainComponent[i] = 1;
+      }
     }
 
     // 2. Preenchimento de Cavidades/Furos Internos (Hole Filling)
@@ -818,7 +825,8 @@ export class MeshGenerator {
         const dNorm = Math.min(1.0, dt[idx] / maxDist);
         const profile = Math.sin(Math.min(1.0, dNorm * 1.5) * (Math.PI / 2)) ** 0.65;
         const bodyCurve = Math.sin(Math.min(1.0, dNorm * 1.4) * (Math.PI / 2)) ** 0.55;
-        const featureRelief = smoothFeat[idx] * depthDetail;
+        const generalRelief = (reliefMap && reliefMap[idx]) ? reliefMap[idx] * 0.35 : 0;
+        const featureRelief = (smoothFeat[idx] + generalRelief) * depthDetail;
 
         let frontY = 0;
         if (backStyle === 'dome') {

@@ -61,6 +61,14 @@ class StudioApp {
         depth: 35.5,
         mode: 'neural'
       },
+      aquaman: {
+        url: './samples/aquaman.jpeg',
+        depthUrl: null,
+        modelUrl: null,
+        height: 85,
+        depth: 28,
+        mode: 'neural'
+      },
       statue: {
         url: './samples/statue_bust.jpg',
         depthUrl: './samples/statue_bust_depth.png',
@@ -318,8 +326,17 @@ class StudioApp {
         this.currentImageSrc = e.target.result;
         this.currentDepthImg = null;
         this.currentGLBUrl = null;
+        this.currentModelUrl = null; // Garante que NUNCA mantenha o modelo 3D anterior fixado!
         this.activeCropCanvas = null;
         this.activeCropSrc = e.target.result;
+
+        // Limpa parâmetro ?sample da URL para nunca fixar Batman
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        // Desativa seleção de preset anterior
+        document.querySelectorAll('.preset-btn').forEach(btn => btn.classList.remove('active'));
 
         this.updateImagePreview(e.target.result);
 
@@ -412,9 +429,7 @@ class StudioApp {
     if (backstyleSelect) {
       backstyleSelect.addEventListener('change', () => {
         this.options.backStyle = backstyleSelect.value;
-        if (this.options.engineMode !== 'neural') {
-          this.generate3DModel();
-        }
+        this.generate3DModel();
       });
     }
 
@@ -429,9 +444,7 @@ class StudioApp {
         detailVal.textContent = `${label} (${this.options.depthDetail.toFixed(1)})`;
       });
       detailSlider.addEventListener('change', () => {
-        if (this.options.engineMode !== 'neural') {
-          this.generate3DModel();
-        }
+        this.generate3DModel();
       });
     }
 
@@ -472,70 +485,8 @@ class StudioApp {
         return;
       }
 
-      const meshyKey = CloudAIService.getStoredMeshyKey();
-      if (!meshyKey) {
-        // Sem necessidade de chave: gera escultura volumétrica 360° de forma nativa e gratuita!
-        this.options.backStyle = 'dome';
-        this.generateLocalModel(targetSrc);
-        return;
-      }
-
-      this.isGenerating = true;
-      btnGen.disabled = true;
-      progressContainer.classList.remove('hidden');
-      progressBar.style.width = '10%';
-      statusEl.textContent = 'Enviando imagem para a IA da Meshy (OpenAPI v1)...';
-      statusEl.style.color = '#00f2fe';
-
-      try {
-        let dataUrl = targetSrc;
-        if (!dataUrl.startsWith('data:')) {
-          const imgElem = this.activeCropCanvas || this.currentImage;
-          const canvas = document.createElement('canvas');
-          canvas.width = imgElem.naturalWidth || imgElem.width || 512;
-          canvas.height = imgElem.naturalHeight || imgElem.height || 512;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(imgElem, 0, 0);
-          dataUrl = canvas.toDataURL('image/png');
-        }
-
-        const result = await CloudAIService.generateWithMeshy(meshyKey, {
-          imageUrl: dataUrl,
-          aiModel: 'meshy-4'
-        }, (prog) => {
-          progressBar.style.width = `${prog.percent}%`;
-          statusEl.textContent = prog.message;
-        });
-
-        const glbUrl = result.glbUrl || result.glb;
-        if (!glbUrl) throw new Error('A IA da Meshy concluiu a tarefa, mas não retornou a URL do modelo 3D.');
-
-        this.currentGLBUrl = glbUrl;
-
-        statusEl.textContent = 'Posicionando modelo anatômico 360° em pé na mesa (Z = 0)...';
-        progressBar.style.width = '96%';
-
-        const loadRes = await this.viewer.loadGLBFromUrl(glbUrl, {
-          targetHeight: this.options.targetHeight,
-          addPedestal: this.options.addPedestal
-        });
-
-        this.updateMetricsUI(loadRes.dimensions, loadRes.stats);
-
-        progressBar.style.width = '100%';
-        setTimeout(() => progressContainer.classList.add('hidden'), 800);
-
-        statusEl.textContent = `Modelo 360° gerado com sucesso pela Meshy AI! (${loadRes.stats.triangles.toLocaleString()} polígonos • 100% Manifold)`;
-        statusEl.style.color = '#34d399';
-      } catch (err) {
-        console.error('Falha na IA Meshy:', err);
-        progressContainer.classList.add('hidden');
-        statusEl.textContent = `Erro na Meshy AI: ${err.message}.`;
-        statusEl.style.color = '#f87171';
-      } finally {
-        this.isGenerating = false;
-        btnGen.disabled = false;
-      }
+      // Modelagem 3D 360° nativa e instantânea para qualquer imagem enviada
+      this.generateLocalModel();
       return;
     }
 
@@ -559,12 +510,13 @@ class StudioApp {
           reliefDepth: this.options.maxDepth * 0.5
         });
       } else {
+        const activeBackStyle = (this.options.engineMode === 'neural') ? 'dome' : (this.options.backStyle || 'flat');
         result = MeshGenerator.createVolumetricSculpture(processed, {
           targetHeight: this.options.targetHeight,
           maxDepth: this.options.maxDepth,
           depthDetail: this.options.depthDetail,
           addPedestal: this.options.addPedestal,
-          backStyle: this.options.backStyle || 'flat',
+          backStyle: activeBackStyle,
           pedestalHeight: 4.0
         });
       }
