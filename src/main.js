@@ -749,7 +749,7 @@ class StudioApp {
   }
 
   bindExports() {
-    const getBaseName = () => `forge3d_escultura_${Date.now()}`;
+    const getBaseName = () => `medaffection3d_escultura_${Date.now()}`;
 
     const btn3mf = document.getElementById('btn-export-3mf');
     if (btn3mf) {

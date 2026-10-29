@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forge3D - Estúdio de Escultura 3D Volumétrica & Conversão para STL</title>
+    <title>MedAffection 3D - Estúdio de Escultura 3D Volumétrica & Conversão para STL</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="app" class="app-layout">
@@ -15,18 +15,18 @@
       <header class="app-header">
         <div class="header-brand">
           <div class="brand-logo">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            <svg viewBox="0 0 267 267" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M163.469 49.0408C145.393 49.0408 130.74 63.9872 130.74 82.4246C130.74 83.9195 129.552 85.1314 128.086 85.1314C110.01 85.1314 95.3571 100.078 95.3571 118.515C95.3571 136.953 110.01 151.899 128.086 151.899C129.552 151.899 130.74 153.111 130.74 154.606C130.74 173.043 145.393 187.99 163.469 187.99C181.545 187.99 196.199 173.043 196.199 154.606C196.199 153.111 197.387 151.899 198.852 151.899C216.928 151.899 231.582 136.953 231.582 118.515C231.582 100.078 216.928 85.1314 198.852 85.1314C197.387 85.1314 196.199 83.9195 196.199 82.4246C196.199 63.9872 181.545 49.0408 163.469 49.0408Z" fill="#c4b5fd" opacity="0.6"/>
+              <path d="M134.862 73.5612C117.148 73.5612 102.788 87.9215 102.788 105.636C102.788 107.072 101.623 108.236 100.187 108.236C82.4725 108.236 68.1122 122.597 68.1122 140.311C68.1122 158.026 82.4725 172.386 100.187 172.386C101.623 172.386 102.788 173.55 102.788 174.986C102.788 192.701 117.148 207.061 134.862 207.061C152.577 207.061 166.937 192.701 166.937 174.986C166.937 173.55 168.101 172.386 169.537 172.386C187.252 172.386 201.612 158.026 201.612 140.311C201.612 122.597 187.252 108.236 169.537 108.236C168.101 108.236 166.937 107.072 166.937 105.636C166.937 87.9215 152.577 73.5612 134.862 73.5612Z" fill="#905cf7" opacity="0.85"/>
+              <path d="M106.255 92.6326C88.1792 92.6326 73.5259 107.286 73.5259 125.362C73.5259 126.827 72.3378 128.016 70.8722 128.016C52.7963 128.016 38.1429 142.669 38.1429 160.745C38.1429 178.821 52.7963 193.474 70.8722 193.474C72.3378 193.474 73.5259 194.662 73.5259 196.128C73.5259 214.204 88.1792 228.857 106.255 228.857C124.331 228.857 138.985 214.204 138.985 196.128C138.985 194.662 140.173 193.474 141.638 193.474C159.714 193.474 174.367 178.821 174.367 160.745C174.367 142.669 159.714 128.016 141.638 128.016C140.173 128.016 138.985 126.827 138.985 125.362C138.985 107.286 124.331 92.6326 106.255 92.6326Z" fill="#7c4dff"/>
             </svg>
           </div>
           <div>
             <div class="brand-title-wrap">
-              <h1 class="brand-title">Forge3D</h1>
-              <span class="badge-free">100% NATIVO • GRÁTIS</span>
+              <h1 class="brand-title">medaffection <span class="brand-3d">3D</span></h1>
+              <span class="badge-free"><span class="badge-dot-green"></span>TRANSFORMANDO O CUIDAR</span>
             </div>
-            <p class="brand-subtitle">Transforme qualquer imagem em Escultura 3D Volumétrica em pé na mesa (.STL)</p>
+            <p class="brand-subtitle">Estúdio de Escultura 3D Volumétrica & Impressão (.STL / .3MF)</p>
           </div>
         </div>
 
@@ -383,11 +383,11 @@
       <div id="modal-guide" class="modal-backdrop hidden">
         <div class="modal-dialog">
           <div class="modal-header">
-            <h3>Como Funciona o Forge3D</h3>
+            <h3>Como Funciona o MedAffection 3D</h3>
             <button class="btn-close-modal" id="btn-close-guide">&times;</button>
           </div>
           <div class="modal-body">
-            <p>O Forge3D converte fotos e ilustrações 2D diretamente em modelos 3D volumétricos para impressão 3D:</p>
+            <p>O <strong>MedAffection 3D</strong> converte fotos e ilustrações 2D diretamente em modelos 3D volumétricos para impressão 3D:</p>
             <ul>
               <li><strong>Segmentação Perimetral Inteligente:</strong> Remove fundos claros, pretos ou coloridos sem apagar partes escuras do personagem (cabelos, botas, olhos).</li>
               <li><strong>Escultura por Transformada de Distância:</strong> Avalia a espessura anatômica de cada membro individualmente. Pernas, braços, capa e peito são inflados com raios e curvaturas independentes, sem fusão tubular.</li>

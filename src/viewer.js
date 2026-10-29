@@ -28,7 +28,7 @@ export class Viewer3D {
 
   initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0f1d);
+    this.scene.background = new THREE.Color(0x0c0915);
 
     const width = this.container.clientWidth || 800;
     const height = this.container.clientHeight || 600;
@@ -70,8 +70,8 @@ export class Viewer3D {
     this.keyLight.castShadow = true;
     this.scene.add(this.keyLight);
 
-    // Luz de contorno e preenchimento
-    const rimLight = new THREE.DirectionalLight(0x70a1ff, 1.2);
+    // Luz de contorno e preenchimento com matiz violeta MedAffection
+    const rimLight = new THREE.DirectionalLight(0x905cf7, 1.2);
     rimLight.position.set(-80, 100, 70);
     this.scene.add(rimLight);
 
@@ -87,7 +87,7 @@ export class Viewer3D {
 
     const bedGeo = new THREE.BoxGeometry(bedWidth, bedLength, 4);
     const bedMat = new THREE.MeshStandardMaterial({
-      color: 0x141a27,
+      color: 0x181226,
       roughness: 0.85,
       metalness: 0.15
     });
@@ -97,14 +97,14 @@ export class Viewer3D {
     this.bedGroup.add(this.bedMesh);
 
     // Grade da mesa aquecida (Z = 0)
-    const grid = new THREE.GridHelper(bedWidth, 22, 0x00f2fe, 0x223249);
+    const grid = new THREE.GridHelper(bedWidth, 22, 0x7c4dff, 0x2f214f);
     grid.rotation.x = Math.PI / 2;
     grid.position.set(0, 0, 0.05);
     this.bedGroup.add(grid);
 
     // Clipes da mesa
     const clipGeo = new THREE.BoxGeometry(12, 12, 3);
-    const clipMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.8, roughness: 0.3 });
+    const clipMat = new THREE.MeshStandardMaterial({ color: 0x6c3ee4, metalness: 0.8, roughness: 0.3 });
     const corners = [
       [-bedWidth / 2 + 6, -bedLength / 2 + 6],
       [bedWidth / 2 - 6, -bedLength / 2 + 6],
@@ -614,7 +614,7 @@ export class Viewer3D {
 
     const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Title">Forge3D Model</metadata>
+  <metadata name="Title">MedAffection 3D Model</metadata>
   <resources>
     <object id="1" type="model">
       <mesh>

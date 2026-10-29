@@ -1,6 +1,6 @@
-# Forge3D AI - Estúdio Aberto Imagem ➔ 3D & STL (100% Gratuito)
+# MedAffection 3D - Estúdio Imagem ➔ 3D & STL (100% Gratuito)
 
-Uma plataforma completa e aberta para transformar qualquer imagem 2D (fotos, logos, desenhos, esculturas, ilustrações) em **modelos 3D fechados (Manifold)** prontos para impressão 3D em **STL**, **OBJ** e **GLB**, sem limites de créditos ou custos recorrentes.
+Uma plataforma completa e aberta para transformar qualquer imagem 2D (fotos, logos, desenhos, esculturas, ilustrações) em **modelos 3D fechados (Manifold)** prontos para impressão 3D em **STL**, **OBJ**, **3MF** e **GLB**.
 
 ---
 
